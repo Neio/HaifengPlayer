@@ -1,4 +1,4 @@
-package com.nuomi;
+package com.haifeng;
 
 import android.Manifest;
 import android.os.Bundle;
@@ -71,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
     private Runnable tickerRunnable;
     private long currentPositionMs = 0;                     // 当前播放位置（ms）
 
-    private static final String ACTION_CONTROLLER = "com.nuomi.ACTION_CONTROLLER";
+    private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
     // 来源标识
     private static final String SRC_QQ  = "QQ";
@@ -81,7 +81,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean suppressLyricsToggle = false;
 
-    private static final String ACTION_SELECTION_CHANGED = "com.nuomi.ACTION_SELECTION_CHANGED";
+    private static final String ACTION_SELECTION_CHANGED = "com.haifeng.ACTION_SELECTION_CHANGED";
 
 
     private BroadcastReceiver selectionChangedRx = new BroadcastReceiver() {
@@ -212,15 +212,16 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Button pickBtn = findViewById(R.id.btn_pick_session);
+        findViewById(R.id.btn_test_lazy).setOnClickListener(v -> testLazyAudioProxy());
         pickBtn.setOnClickListener(v -> {
             // 先检查是否已授予通知监听权限
-            if (!com.nuomi.NotifAccessHelper.isEnabled(this)) {
+            if (!com.haifeng.NotifAccessHelper.isEnabled(this)) {
                 Toast.makeText(this, "请先开启“通知使用权”，再返回此页", Toast.LENGTH_LONG).show();
-                com.nuomi.NotifAccessHelper.openSettings(this);
+                com.haifeng.NotifAccessHelper.openSettings(this);
                 return;
             }
             // 打开底部弹窗
-            new com.nuomi.SessionPickerSheet()
+            new com.haifeng.SessionPickerSheet()
                     .show(getSupportFragmentManager(), "session_picker");
         });
 
@@ -275,7 +276,7 @@ public class MainActivity extends AppCompatActivity {
             prefs.edit().putBoolean("autoLyrics", isChecked).apply();
             if (isChecked) {
                 // 用户开启后立即激活歌词模式（由 MyMusicService 监听本地广播）
-                Intent intent = new Intent("com.nuomi.ACTION_TOGGLE_LYRICS_MODE");
+                Intent intent = new Intent("com.haifeng.ACTION_TOGGLE_LYRICS_MODE");
                 LocalBroadcastManager.getInstance(MainActivity.this).sendBroadcast(intent);
             }
         });
@@ -354,9 +355,84 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+    private android.support.v4.media.MediaBrowserCompat lazyBrowser;
+
+    private void testLazyAudioProxy() {
+        String pkg = "bubei.tingshu.international";
+        String label = "懒人听书";
+
+        // 1. 保存到 SharedPreferences，这样 Sniffer 和 Service 才知道要监听谁
+        getSharedPreferences("session_pref", Context.MODE_PRIVATE)
+                .edit()
+                .putString("last_pkg", pkg)
+                .putString("last_label", label)
+                .apply();
+
+        // 2. 发送选择变更广播，通知 MainActivity 更新“打开应用”按钮内容
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                        .putExtra("pkg", pkg)
+                        .putExtra("label", label));
+
+        // 3. 发送请求 Token 广播，让 Sniffer 立即去寻找该应用的 MediaSession
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+
+        // 4. 连接 MediaBrowser 以通过 Data Proxy 方式唤醒应用
+        android.content.ComponentName component = new android.content.ComponentName(
+                pkg, "tingshu.bubei.mediasupport.service.MediaSessionBrowserService");
+        lazyBrowser = new android.support.v4.media.MediaBrowserCompat(this, component,
+                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
+                    @Override
+                    public void onConnected() {
+                        android.util.Log.i("LazyProxy", "✅ Connected to Lazy Audio!");
+                        try {
+                            // Reuse the same qqCtrl/cb pattern so the phone UI updates correctly
+                            if (qqCtrl != null) qqCtrl.unregisterCallback(cb);
+                            qqCtrl = new MediaControllerCompat(
+                                    MainActivity.this, lazyBrowser.getSessionToken());
+                            qqCtrl.registerCallback(cb, null);
+                            MediaControllerCompat.setMediaController(MainActivity.this, qqCtrl);
+
+                            // Immediately refresh phone UI with current chapter info
+                            MediaMetadataCompat meta = qqCtrl.getMetadata();
+                            if (meta != null) cb.onMetadataChanged(meta);
+
+                            android.util.Log.i("LazyProxy", "🎧 Phone UI now shows Lazy Audio chapter");
+                        } catch (Exception e) {
+                            android.util.Log.e("LazyProxy", "❌ Failed to set MediaController", e);
+                        }
+
+                        // Log the content tree for debugging
+                        String root = lazyBrowser.getRoot();
+                        android.util.Log.i("LazyProxy", "Root ID: " + root);
+                        lazyBrowser.subscribe(root, new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
+                            @Override
+                            public void onChildrenLoaded(String parentId, java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
+                                android.util.Log.i("LazyProxy", "📂 Children of " + parentId + ": " + children.size());
+                                for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
+                                    android.util.Log.i("LazyProxy", "  - [" + (item.isBrowsable() ? "DIR" : "FILE") + "] " 
+                                        + item.getDescription().getTitle() + " (ID: " + item.getMediaId() + ")");
+                                }
+                            }
+                        });
+                    }
+                    @Override
+                    public void onConnectionFailed() {
+                        android.util.Log.e("LazyProxy", "❌ Connection Failed");
+                    }
+                }, null);
+        lazyBrowser.connect();
+
+        Toast.makeText(this, "已自动切换到：懒人听书", Toast.LENGTH_SHORT).show();
+    }
+
     @Override
     protected void onDestroy() {
         if (qqCtrl != null) qqCtrl.unregisterCallback(cb);
+        if (lazyBrowser != null && lazyBrowser.isConnected()) {
+            lazyBrowser.disconnect();
+        }
         LocalBroadcastManager.getInstance(this).unregisterReceiver(tokenReceiver);
         progressHandler.removeCallbacksAndMessages(null);  // 停止进度更新
 

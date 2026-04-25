@@ -54,7 +54,7 @@
 
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/playerAlbumCoverFragment"
-        android:name="com.nuomi.AlbumCoverFragment"
+        android:name="com.haifeng.AlbumCoverFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintHeight_percent="0.5"
@@ -65,7 +65,7 @@
 
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/playbackControlsFragment"
-        android:name="com.nuomi.PlaybackControlsFragment"
+        android:name="com.haifeng.PlaybackControlsFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/actionContainer"
@@ -94,10 +94,15 @@
             android:id="@+id/btn_pick_session"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="选择播放器" />
+            android:text="其他播放器" />
 
-
-
+        <Button
+            android:id="@+id/btn_test_lazy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="懒人听书"
+            app:icon="@drawable/ic_lazy_audio"
+            style="@style/Widget.Material3.Button.TextButton.Icon" />
 
     </LinearLayout>
 

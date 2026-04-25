@@ -4,6 +4,12 @@
     <uses-feature
         android:name="android.hardware.type.automotive"
         android:required="true" />
+    <queries>
+        <package android:name="bubei.tingshu.international" />
+        <intent>
+            <action android:name="android.media.browse.MediaBrowserService" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="true"

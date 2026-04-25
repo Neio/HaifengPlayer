@@ -1,4 +1,4 @@
-package com.nuomi
+package com.haifeng
 
 import android.content.Context
 import android.content.res.ColorStateList
@@ -11,7 +11,7 @@ import android.widget.FrameLayout
 import android.widget.SeekBar
 import androidx.core.content.withStyledAttributes
 import com.google.android.material.slider.Slider
-import com.nuomi.R
+import com.haifeng.R
 
 
 /**

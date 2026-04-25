@@ -1,4 +1,4 @@
-package com.nuomi;
+package com.haifeng;
 
 import android.graphics.Bitmap;
 import android.os.Bundle;

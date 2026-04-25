@@ -1,4 +1,4 @@
-package com.nuomi;
+package com.haifeng;
 
 import org.junit.Test;
 

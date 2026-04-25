@@ -2,12 +2,12 @@ plugins {
     id 'com.android.library'
 }
 android {
-    namespace 'com.nuomi.shared'
-    compileSdkVersion 34
+    namespace = 'com.haifeng.shared'
+    compileSdk = 36
 
     defaultConfig {
-        minSdkVersion 28
-        targetSdkVersion 34
+        minSdk = 28
+        targetSdk = 36
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

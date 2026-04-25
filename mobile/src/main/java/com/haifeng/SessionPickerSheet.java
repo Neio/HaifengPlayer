@@ -1,4 +1,4 @@
-package com.nuomi;
+package com.haifeng;
 
 
 
@@ -10,7 +10,7 @@ import android.widget.*;
 
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
-import com.nuomi.R;
+import com.haifeng.R;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import java.util.ArrayList;
@@ -59,10 +59,10 @@ public class SessionPickerSheet extends BottomSheetDialogFragment {
                     .apply();
 
             LocalBroadcastManager.getInstance(requireContext())
-                    .sendBroadcast(new Intent("com.nuomi.REQUEST_TOKEN"));
+                    .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
 
             LocalBroadcastManager.getInstance(requireContext())
-                    .sendBroadcast(new Intent("com.nuomi.ACTION_SELECTION_CHANGED")
+                    .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
                             .putExtra("pkg", si.packageName)
                             .putExtra("label", si.appLabel));
 

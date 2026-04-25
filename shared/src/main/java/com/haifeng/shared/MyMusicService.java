@@ -1,4 +1,4 @@
-package com.nuomi.shared;
+package com.haifeng.shared;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -6,6 +6,7 @@ import android.content.IntentFilter;
 
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
@@ -37,12 +38,13 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private MediaControllerCompat remoteCtrl;                  // 指向外部播放器的控制器（QQ 或 NCM）
     private final MediaControllerCompat.Callback remoteCb = new RemoteCallback(); // 监听状态变化
 
-    private static final String CUSTOM_ACTION_SHOW_LYRICS = "com.nuomi.SHOW_LYRICS";
-    private static final String CUSTOM_ACTION_REPEAT_MODE = "com.nuomi.REPEAT_MODE";
+    private static final String CUSTOM_ACTION_SHOW_LYRICS = "com.haifeng.SHOW_LYRICS";
+    private static final String CUSTOM_ACTION_REPEAT_MODE = "com.haifeng.REPEAT_MODE";
+    private static final String CUSTOM_ACTION_SWITCH_LAZY = "com.haifeng.SWITCH_LAZY";
 
-    private static final String ACTION_CONTROLLER = "com.nuomi.ACTION_CONTROLLER";
+    private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
-    private static final String ACTION_TOGGLE_LYRICS_MODE = "com.nuomi.ACTION_TOGGLE_LYRICS_MODE";
+    private static final String ACTION_TOGGLE_LYRICS_MODE = "com.haifeng.ACTION_TOGGLE_LYRICS_MODE";
 
     private List<Pair<Long, String>> parsedLyrics = new ArrayList<>();
     private boolean isLyricsMode = false; // 仅 QQ 模式可用；NCM 模式强制关闭
@@ -74,6 +76,21 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // 放在成员里
     private static final String TAG = "Mirror";
 
+    // =========================================================
+    // 懒人听书 Data Proxy
+    // =========================================================
+    private static final String LAZY_PKG   = "bubei.tingshu.international";
+
+    private static final String LAZY_SVC   = "tingshu.bubei.mediasupport.service.MediaSessionBrowserService";
+    private static final String LAZY_ROOT  = "__lazy_root__";
+
+    private android.support.v4.media.MediaBrowserCompat lazyBrowser;
+    private boolean lazyConnected = false;
+
+    // Pending deferred results waiting for Lazy Audio connection
+    private final java.util.concurrent.ConcurrentHashMap<String, Result<List<MediaBrowserCompat.MediaItem>>>
+            pendingResults = new java.util.concurrent.ConcurrentHashMap<>();
+
     private void updateSessionActive(String reason) {
         boolean should = (!isNcmMode && isLyricsMode); // 只有 QQ + 歌词模式 才激活
         if (mSession.isActive() != should) {
@@ -88,7 +105,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
                 | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                 | PlaybackStateCompat.ACTION_SEEK_TO
-                | PlaybackStateCompat.ACTION_PLAY_PAUSE;
+                | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                | PlaybackStateCompat.ACTION_FAST_FORWARD
+                | PlaybackStateCompat.ACTION_REWIND;
 
         return new PlaybackStateCompat.Builder()
                 .setState(state, pos, speed, SystemClock.elapsedRealtime())
@@ -241,7 +260,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
                                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
                                         PlaybackStateCompat.ACTION_SEEK_TO |
-                                        PlaybackStateCompat.ACTION_PLAY_PAUSE
+                                        PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                        PlaybackStateCompat.ACTION_FAST_FORWARD |
+                                        PlaybackStateCompat.ACTION_REWIND
                         );
 
                 // 自定义按钮（仅 QQ 模式展示）
@@ -278,7 +299,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                     PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
                                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
                                     PlaybackStateCompat.ACTION_SEEK_TO |
-                                    PlaybackStateCompat.ACTION_PLAY_PAUSE
+                                    PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                    PlaybackStateCompat.ACTION_FAST_FORWARD |
+                                    PlaybackStateCompat.ACTION_REWIND
                     );
 
             // 仅 QQ 模式下加入自定义按钮；NCM 模式完全关闭“歌词/循环”按钮
@@ -300,6 +323,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                         CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
             }
+
+            builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                    CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_settings_24dp).build());
 
             mSession.setPlaybackState(builder.build());
         }
@@ -354,7 +380,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                 PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
                                 PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
                                 PlaybackStateCompat.ACTION_SEEK_TO |
-                                PlaybackStateCompat.ACTION_PLAY_PAUSE
+                                PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                PlaybackStateCompat.ACTION_FAST_FORWARD |
+                                PlaybackStateCompat.ACTION_REWIND
                 );
 
         int lyricsIconRes = R.drawable.ic_lyrics_24dp;
@@ -370,6 +398,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         }
         ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                 CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
+
+        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
 
         mSession.setPlaybackState(ps.build());
     }
@@ -497,6 +528,26 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     remoteCtrl.getTransportControls().skipToPrevious();
             }
 
+            @Override public void onFastForward() {
+                if (remoteCtrl != null)
+                    remoteCtrl.getTransportControls().fastForward();
+            }
+
+            @Override public void onRewind() {
+                if (remoteCtrl != null)
+                    remoteCtrl.getTransportControls().rewind();
+            }
+
+            @Override public void onPlayFromMediaId(String mediaId, Bundle extras) {
+                // Strip our namespace prefix before forwarding
+                String realId = mediaId.startsWith(LAZY_ROOT + ":") ?
+                        mediaId.substring((LAZY_ROOT + ":").length()) : mediaId;
+                if (remoteCtrl != null) {
+                    remoteCtrl.getTransportControls().playFromMediaId(realId, extras);
+                    Log.i(TAG, "▶️ playFromMediaId → " + realId);
+                }
+            }
+
             @Override public void onSeekTo(long positionMs) {
                 if (remoteCtrl != null) {
                     remoteCtrl.getTransportControls().seekTo(positionMs);
@@ -564,6 +615,28 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                             mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
                         }
                     }, 500);
+                } else if (CUSTOM_ACTION_SWITCH_LAZY.equals(action)) {
+                    String pkg = "bubei.tingshu";
+                    String label = "懒人听书";
+
+                    // 1. 保存到 SharedPreferences
+                    getSharedPreferences("session_pref", MODE_PRIVATE)
+                            .edit()
+                            .putString("last_pkg", pkg)
+                            .putString("last_label", label)
+                            .apply();
+
+                    // 2. 发送选择变更广播
+                    LocalBroadcastManager.getInstance(MyMusicService.this)
+                            .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                                    .putExtra("pkg", pkg)
+                                    .putExtra("label", label));
+
+                    // 3. 发送请求 Token 广播
+                    LocalBroadcastManager.getInstance(MyMusicService.this)
+                            .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+
+                    Log.i("Mirror", "🚗 车机端已切换到：懒人听书");
                 }
             }
         });
@@ -571,6 +644,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         // 同时注册 QQ / NCM 的 Token 广播
         LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
         lbm.registerReceiver(tokenRx, new IntentFilter(ACTION_CONTROLLER));
+
+        // 连接懒人听书 MediaBrowserService（Data Proxy）
+        connectLazyAudio();
 
 
 
@@ -601,6 +677,106 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     }
 
     // =========================================================
+    // 懒人听书 Data Proxy 连接管理
+    // =========================================================
+    private void connectLazyAudio() {
+        android.content.ComponentName cn = new android.content.ComponentName(LAZY_PKG, LAZY_SVC);
+        lazyBrowser = new android.support.v4.media.MediaBrowserCompat(
+                this, cn,
+                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
+                    @Override public void onConnected() {
+                        lazyConnected = true;
+                        Log.i(TAG, "✅ 已连接懒人听书 MediaBrowserService，root=" + lazyBrowser.getRoot());
+
+                        // 🎯 Key: grab the current MediaSession token directly from the browser.
+                        // This immediately gives us the chapter title, cover, and progress
+                        // without waiting for the Sniffer notification.
+                        try {
+                            MediaSessionCompat.Token token = lazyBrowser.getSessionToken();
+                            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+                            remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
+                            remoteCtrl.registerCallback(remoteCb);
+
+                            // Switch to NCM (non-QQ) mode so metadata passes through cleanly
+                            isNcmMode = true;
+
+                            // Save preference so Sniffer also knows to follow Lazy Audio
+                            getSharedPreferences("session_pref", MODE_PRIVATE)
+                                    .edit()
+                                    .putString("last_pkg", LAZY_PKG)
+                                    .putString("last_label", "懒人听书")
+                                    .apply();
+
+                            // Mirror current state immediately → car screen shows chapter + progress
+                            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+                            Log.i(TAG, "🎧 已绑定懒人听书控制器，立即同步当前章节与进度");
+                        } catch (Exception e) {
+                            Log.e(TAG, "❌ 绑定懒人听书控制器失败", e);
+                        }
+
+                        // Flush any pending results that arrived before the connection was ready
+                        for (java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e
+                                : pendingResults.entrySet()) {
+                            subscribeAndDeliver(e.getKey(), e.getValue());
+                        }
+                        pendingResults.clear();
+                    }
+                    @Override public void onConnectionFailed() {
+                        lazyConnected = false;
+                        Log.e(TAG, "❌ 连接懒人听书失败");
+                    }
+                    @Override public void onConnectionSuspended() {
+                        lazyConnected = false;
+                        Log.w(TAG, "⚠️ 懒人听书连接已挂起");
+                    }
+                }, null);
+        lazyBrowser.connect();
+    }
+
+    /**
+     * Subscribe to a Lazy Audio path via our browser and forward the results to
+     * the Android Auto result object.
+     */
+    private void subscribeAndDeliver(String lazyParentId,
+                                     Result<List<MediaBrowserCompat.MediaItem>> result) {
+        result.detach();
+        lazyBrowser.unsubscribe(lazyParentId); // clear any stale subscription first
+        lazyBrowser.subscribe(lazyParentId,
+                new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
+                    @Override
+                    public void onChildrenLoaded(String parentId,
+                                                List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
+                        // Namespace every ID so we can distinguish Lazy Audio items
+                        List<MediaBrowserCompat.MediaItem> proxied = new ArrayList<>();
+                        for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
+                            String namespacedId = LAZY_ROOT + ":" + item.getMediaId();
+                            android.support.v4.media.MediaDescriptionCompat desc =
+                                    new android.support.v4.media.MediaDescriptionCompat.Builder()
+                                            .setMediaId(namespacedId)
+                                            .setTitle(item.getDescription().getTitle())
+                                            .setSubtitle(item.getDescription().getSubtitle())
+                                            .setIconUri(item.getDescription().getIconUri())
+                                            .setIconBitmap(item.getDescription().getIconBitmap())
+                                            .build();
+                            int flags = item.isBrowsable()
+                                    ? MediaBrowserCompat.MediaItem.FLAG_BROWSABLE
+                                    : MediaBrowserCompat.MediaItem.FLAG_PLAYABLE;
+                            proxied.add(new MediaBrowserCompat.MediaItem(desc, flags));
+                            Log.i(TAG, "  [" + (item.isBrowsable() ? "DIR" : "FILE") + "] "
+                                    + item.getDescription().getTitle() + " id=" + item.getMediaId());
+                        }
+                        result.sendResult(proxied);
+                        lazyBrowser.unsubscribe(parentId);
+                    }
+                    @Override
+                    public void onError(String parentId) {
+                        Log.e(TAG, "❌ 懒人听书订阅失败 parentId=" + parentId);
+                        result.sendResult(Collections.emptyList());
+                    }
+                });
+    }
+
+    // =========================================================
     // 🧹 资源释放
     // =========================================================
     @Override
@@ -608,6 +784,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         handler.removeCallbacks(lyricsUpdater);
         if (remoteCtrl != null) {
             remoteCtrl.unregisterCallback(remoteCb);
+        }
+        if (lazyBrowser != null && lazyBrowser.isConnected()) {
+            lazyBrowser.disconnect();
         }
         LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
         lbm.unregisterReceiver(tokenRx);
@@ -630,6 +809,44 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     @Override
     public void onLoadChildren(@NonNull String parentId,
                                @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
-        result.sendResult(Collections.emptyList());
+        if ("root".equals(parentId)) {
+            // Top-level: show a single "懒人听书" folder
+            android.support.v4.media.MediaDescriptionCompat desc =
+                    new android.support.v4.media.MediaDescriptionCompat.Builder()
+                            .setMediaId(LAZY_ROOT)
+                            .setTitle("懒人听书")
+                            .setSubtitle("点击浏览有声书")
+                            .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_audio))
+                            .build();
+            List<MediaBrowserCompat.MediaItem> root = new ArrayList<>();
+            root.add(new MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
+            result.sendResult(root);
+            return;
+        }
+
+        // Strip our namespace prefix to get the real Lazy Audio parent ID
+        String lazyParentId;
+        if (LAZY_ROOT.equals(parentId)) {
+            // The root of the Lazy Audio tree
+            if (!lazyConnected || lazyBrowser == null) {
+                pendingResults.put(lazyBrowser != null ? lazyBrowser.getRoot() : parentId, result);
+                if (lazyBrowser == null || !lazyBrowser.isConnected()) connectLazyAudio();
+                return;
+            }
+            lazyParentId = lazyBrowser.getRoot();
+        } else if (parentId.startsWith(LAZY_ROOT + ":")) {
+            lazyParentId = parentId.substring((LAZY_ROOT + ":").length());
+        } else {
+            // Unknown path
+            result.sendResult(Collections.emptyList());
+            return;
+        }
+
+        if (!lazyConnected) {
+            pendingResults.put(lazyParentId, result);
+            return;
+        }
+
+        subscribeAndDeliver(lazyParentId, result);
     }
 }

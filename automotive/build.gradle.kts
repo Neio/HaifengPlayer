@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "com.nuomi"
+    namespace = "com.haifeng"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.nuomi"
+        applicationId = "com.haifeng"
         minSdk = 28
         targetSdk = 36
         versionCode = 1

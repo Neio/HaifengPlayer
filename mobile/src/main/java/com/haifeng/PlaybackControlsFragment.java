@@ -1,4 +1,4 @@
-package com.nuomi;
+package com.haifeng;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -52,7 +52,7 @@ public class PlaybackControlsFragment extends Fragment {
             String s = String.valueOf(e);
             if (s.contains("DeadObjectException")) {
                 Log.e("PlaybackControlsFragment", "Remote session dead → request rebind", e);
-                requireContext().sendBroadcast(new Intent("com.nuomi.ACTION_REBIND_ACTIVE_SESSION"));
+                requireContext().sendBroadcast(new Intent("com.haifeng.ACTION_REBIND_ACTIVE_SESSION"));
                 Toast.makeText(requireContext(), "播放器断开，正在重新连接…", Toast.LENGTH_SHORT).show();
             } else {
                 Log.e("PlaybackControlsFragment", "Controller call failed", e);

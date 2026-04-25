@@ -71,7 +71,7 @@
         app:layout_constraintTop_toTopOf="@id/progressSlider"
         tools:text="@tools:sample/date/hhmmss" />
 
-    <com.nuomi.MusicSlider
+    <com.haifeng.MusicSlider
         android:id="@+id/progressSlider"
         android:layout_width="0dp"
         android:layout_height="wrap_content"

@@ -1,4 +1,4 @@
-package com.nuomi;
+package com.haifeng;
 
 import android.content.Context;
 
@@ -21,6 +21,6 @@ public class ExampleInstrumentedTest {
     public void useAppContext() {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        assertEquals("com.nuomi", appContext.getPackageName());
+        assertEquals("com.haifeng", appContext.getPackageName());
     }
 }
