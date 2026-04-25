@@ -76,33 +76,52 @@
 
     <LinearLayout
         android:id="@+id/actionContainer"
-        android:layout_width="wrap_content"
-        android:layout_height="?actionBarSize"
-        android:gravity="center_vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
         android:orientation="horizontal"
+        android:paddingBottom="24dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <Button
-            android:id="@+id/btn_open_app"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="打开 QQ 音乐" />
-
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_pick_session"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="其他播放器" />
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:text="其他"
+            app:icon="@drawable/ic_shuffle_24dp"
+            app:iconSize="20dp"
+            app:iconPadding="4dp" />
 
-        <Button
-            android:id="@+id/btn_test_lazy"
-            android:layout_width="wrap_content"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_test_qishui"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="懒人听书"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="6dp"
+            android:text="汽水"
+            app:icon="@drawable/ic_qishui_music"
+            app:iconSize="20dp"
+            app:iconPadding="4dp"
+            app:iconTint="@null" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_test_lazy"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="懒人"
             app:icon="@drawable/ic_lazy_audio"
-            style="@style/Widget.Material3.Button.TextButton.Icon" />
+            app:iconSize="20dp"
+            app:iconPadding="4dp"
+            app:iconTint="@null" />
 
     </LinearLayout>
 

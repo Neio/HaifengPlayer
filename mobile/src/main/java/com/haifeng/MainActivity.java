@@ -86,8 +86,6 @@ public class MainActivity extends AppCompatActivity {
 
     private BroadcastReceiver selectionChangedRx = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            Button btnOpen = findViewById(R.id.btn_open_app);
-            refreshOpenButtonLabel(btnOpen);
 
             // ↓↓↓ 新增：会话变更时同步歌词开关
             SwitchCompat sw = findViewById(R.id.switch_lyrics_mode);
@@ -142,17 +140,6 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private void refreshOpenButtonLabel(Button btnOpen) {
-        SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
-        String label = sp.getString("last_label", null);
-        String pkg   = sp.getString("last_pkg", null);
-
-        if (label != null && pkg != null) {
-            btnOpen.setText("打开 " + label);
-        } else {
-            btnOpen.setText("打开 App");
-        }
-    }
 
 
     // ========================= 生命周期入口 =========================
@@ -213,6 +200,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button pickBtn = findViewById(R.id.btn_pick_session);
         findViewById(R.id.btn_test_lazy).setOnClickListener(v -> testLazyAudioProxy());
+        findViewById(R.id.btn_test_qishui).setOnClickListener(v -> testQishuiMusicProxy());
         pickBtn.setOnClickListener(v -> {
             // 先检查是否已授予通知监听权限
             if (!com.haifeng.NotifAccessHelper.isEnabled(this)) {
@@ -226,7 +214,6 @@ public class MainActivity extends AppCompatActivity {
         });
 
 
-        Button btnOpen = findViewById(R.id.btn_open_app);
 
         // 沉浸式状态栏处理
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main),
@@ -324,28 +311,6 @@ public class MainActivity extends AppCompatActivity {
         LocalBroadcastManager.getInstance(this).registerReceiver(tokenReceiver, filter);
 
 
-        // 6) 打开 App 按钮
-
-        refreshOpenButtonLabel(btnOpen);
-        btnOpen.setOnClickListener(v -> {
-            SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
-            String pkg = sp.getString("last_pkg", null);
-            String label = sp.getString("last_label", "所选应用");
-
-            if (pkg == null) {
-                Toast.makeText(this, "请先选择一个 App", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            // 尝试启动
-            Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(launch);
-            } else {
-                Toast.makeText(this, "未找到 " + label, Toast.LENGTH_SHORT).show();
-            }
-        });
 
 
 
@@ -574,7 +539,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        refreshOpenButtonLabel(findViewById(R.id.btn_open_app));
     }
 
 
@@ -607,5 +571,61 @@ public class MainActivity extends AppCompatActivity {
     /** 停止进度模拟器 */
     private void stopProgressTicker() {
         tickerHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void testQishuiMusicProxy() {
+        String pkg = "com.luna.music";
+        String label = "汽水音乐";
+
+        getSharedPreferences("session_pref", Context.MODE_PRIVATE)
+                .edit()
+                .putString("last_pkg", pkg)
+                .putString("last_label", label)
+                .apply();
+
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                        .putExtra("pkg", pkg)
+                        .putExtra("label", label));
+
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+
+        if (lazyBrowser != null && lazyBrowser.isConnected()) {
+            lazyBrowser.disconnect();
+        }
+
+        android.content.ComponentName component = new android.content.ComponentName(
+                pkg, "com.luna.biz.playing.player.PlayerService");
+
+        lazyBrowser = new android.support.v4.media.MediaBrowserCompat(this, component,
+                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
+                    @Override
+                    public void onConnected() {
+                        android.support.v4.media.session.MediaSessionCompat.Token token = lazyBrowser.getSessionToken();
+                        Log.i("LazyProxy", "✅ Qishui Music Connected! Token=" + token);
+
+                        try {
+                            MediaControllerCompat controller = new MediaControllerCompat(MainActivity.this, token);
+                            MediaControllerCompat.setMediaController(MainActivity.this, controller);
+                            controller.registerCallback(cb);
+                            cb.onMetadataChanged(controller.getMetadata());
+                            cb.onPlaybackStateChanged(controller.getPlaybackState());
+                        } catch (Exception e) {
+                            Log.e("LazyProxy", "❌ Qishui Controller failed", e);
+                        }
+                    }
+
+                    @Override
+                    public void onConnectionSuspended() {
+                        Log.w("LazyProxy", "⚠️ Qishui Connection Suspended");
+                    }
+
+                    @Override
+                    public void onConnectionFailed() {
+                        Log.e("LazyProxy", "❌ Qishui Connection Failed");
+                    }
+                }, null);
+        lazyBrowser.connect();
     }
 }

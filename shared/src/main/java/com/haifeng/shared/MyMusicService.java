@@ -41,6 +41,15 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private static final String CUSTOM_ACTION_SHOW_LYRICS = "com.haifeng.SHOW_LYRICS";
     private static final String CUSTOM_ACTION_REPEAT_MODE = "com.haifeng.REPEAT_MODE";
     private static final String CUSTOM_ACTION_SWITCH_LAZY = "com.haifeng.SWITCH_LAZY";
+    private static final String CUSTOM_ACTION_SWITCH_QISHUI = "com.haifeng.SWITCH_QISHUI";
+    private static final String LAZY_ROOT = "LAZY_ROOT";
+    private static final String QISHUI_ROOT = "QISHUI_ROOT";
+
+    private static final String LAZY_PKG = "bubei.tingshu.international";
+    private static final String LAZY_SVC = "com.bubei.tingshu.service.MediaBrowserService";
+
+    private static final String QISHUI_PKG = "com.luna.music";
+    private static final String QISHUI_SVC = "com.luna.biz.playing.player.PlayerService";
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
@@ -76,23 +85,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // 放在成员里
     private static final String TAG = "Mirror";
 
-    // =========================================================
-    // 懒人听书 Data Proxy
-    // =========================================================
-    private static final String LAZY_PKG   = "bubei.tingshu.international";
-
-    private static final String LAZY_SVC   = "tingshu.bubei.mediasupport.service.MediaSessionBrowserService";
-    private static final String LAZY_ROOT  = "__lazy_root__";
-
     private android.support.v4.media.MediaBrowserCompat lazyBrowser;
     private boolean lazyConnected = false;
+
+    private android.support.v4.media.MediaBrowserCompat qishuiBrowser;
+    private boolean qishuiConnected = false;
 
     // Pending deferred results waiting for Lazy Audio connection
     private final java.util.concurrent.ConcurrentHashMap<String, Result<List<MediaBrowserCompat.MediaItem>>>
             pendingResults = new java.util.concurrent.ConcurrentHashMap<>();
 
     private void updateSessionActive(String reason) {
-        boolean should = (!isNcmMode && isLyricsMode); // 只有 QQ + 歌词模式 才激活
+        // ALWAYS active in NcmMode (Lazy/Qishui) or when Lyrics are on
+        boolean should = isNcmMode || isLyricsMode;
         if (mSession.isActive() != should) {
             mSession.setActive(should);
             Log.i(TAG, "setActive=" + should + " reason=" + reason);
@@ -280,14 +285,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                         CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
 
+                // Also show Switch Buttons in Lyrics Mode
+                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                        CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
+                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                        CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
+
                 mSession.setPlaybackState(builder.build());
                 return;
             }
 
-            // —— QQ 非歌词模式 或 NCM 模式通用分支 ——
+            // Common branch for QQ Non-lyrics or Ncm Mode (Lazy/Qishui)
             int code = st.getState();
-            if (code == PlaybackStateCompat.STATE_NONE ||
-                    code == PlaybackStateCompat.STATE_STOPPED) {
+            if (code == PlaybackStateCompat.STATE_NONE || code == PlaybackStateCompat.STATE_STOPPED) {
                 return;
             }
 
@@ -295,16 +305,16 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     .setState(code, st.getPosition(), st.getPlaybackSpeed())
                     .setActions(
                             PlaybackStateCompat.ACTION_PLAY |
-                                    PlaybackStateCompat.ACTION_PAUSE |
-                                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-                                    PlaybackStateCompat.ACTION_SEEK_TO |
-                                    PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                                    PlaybackStateCompat.ACTION_FAST_FORWARD |
-                                    PlaybackStateCompat.ACTION_REWIND
+                            PlaybackStateCompat.ACTION_PAUSE |
+                            PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
+                            PlaybackStateCompat.ACTION_SEEK_TO |
+                            PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                            PlaybackStateCompat.ACTION_FAST_FORWARD |
+                            PlaybackStateCompat.ACTION_REWIND
                     );
 
-            // 仅 QQ 模式下加入自定义按钮；NCM 模式完全关闭“歌词/循环”按钮
+            // Add Custom Buttons
             if (!isNcmMode) {
                 int lyricsIconRes = isLyricsMode ? R.drawable.ic_lyrics_24dp : R.drawable.ic_lyrics_outline_24dp;
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
@@ -316,7 +326,6 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     switch ((int) playMode) {
                         case 1: repeatIconRes = R.drawable.ic_repeat_one_24dp; break;
                         case 0: repeatIconRes = R.drawable.ic_shuffle_24dp;    break;
-                        case 2:
                         default: repeatIconRes = R.drawable.ic_repeat_24dp;    break;
                     }
                 }
@@ -324,11 +333,17 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
             }
 
+            // Always show Switch Buttons for deep integrated apps
             builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                    CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_settings_24dp).build());
+                    CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
+            builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                    CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
 
             mSession.setPlaybackState(builder.build());
         }
+
+        // IMPORTANT: Update session active state to show in AA Right Panel
+        updateSessionActive("mirror");
     }
 
     // 仅在“QQ 歌词模式”调用：把当前/下一句覆盖到元数据
@@ -401,6 +416,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
         ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                 CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
+
+        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
 
         mSession.setPlaybackState(ps.build());
     }
@@ -539,9 +557,12 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             }
 
             @Override public void onPlayFromMediaId(String mediaId, Bundle extras) {
-                // Strip our namespace prefix before forwarding
-                String realId = mediaId.startsWith(LAZY_ROOT + ":") ?
-                        mediaId.substring((LAZY_ROOT + ":").length()) : mediaId;
+                String realId = mediaId;
+                if (mediaId.startsWith("LAZY_")) {
+                    realId = mediaId.substring(5);
+                } else if (mediaId.startsWith("QISHUI_")) {
+                    realId = mediaId.substring(7);
+                }
                 if (remoteCtrl != null) {
                     remoteCtrl.getTransportControls().playFromMediaId(realId, extras);
                     Log.i(TAG, "▶️ playFromMediaId → " + realId);
@@ -616,27 +637,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         }
                     }, 500);
                 } else if (CUSTOM_ACTION_SWITCH_LAZY.equals(action)) {
-                    String pkg = "bubei.tingshu";
-                    String label = "懒人听书";
-
-                    // 1. 保存到 SharedPreferences
-                    getSharedPreferences("session_pref", MODE_PRIVATE)
-                            .edit()
-                            .putString("last_pkg", pkg)
-                            .putString("last_label", label)
-                            .apply();
-
-                    // 2. 发送选择变更广播
-                    LocalBroadcastManager.getInstance(MyMusicService.this)
-                            .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                                    .putExtra("pkg", pkg)
-                                    .putExtra("label", label));
-
-                    // 3. 发送请求 Token 广播
-                    LocalBroadcastManager.getInstance(MyMusicService.this)
-                            .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
-
-                    Log.i("Mirror", "🚗 车机端已切换到：懒人听书");
+                    connectLazyAudio();
+                } else if (CUSTOM_ACTION_SWITCH_QISHUI.equals(action)) {
+                    connectQishuiMusic();
                 }
             }
         });
@@ -733,6 +736,52 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         lazyBrowser.connect();
     }
 
+    private void connectQishuiMusic() {
+        android.content.ComponentName cn = new android.content.ComponentName(QISHUI_PKG, QISHUI_SVC);
+        qishuiBrowser = new android.support.v4.media.MediaBrowserCompat(
+                this, cn,
+                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
+                    @Override public void onConnected() {
+                        qishuiConnected = true;
+                        Log.i(TAG, "✅ 已连接汽水音乐 MediaBrowserService，root=" + qishuiBrowser.getRoot());
+
+                        try {
+                            MediaSessionCompat.Token token = qishuiBrowser.getSessionToken();
+                            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+                            remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
+                            remoteCtrl.registerCallback(remoteCb);
+
+                            isNcmMode = true;
+
+                            getSharedPreferences("session_pref", MODE_PRIVATE)
+                                    .edit()
+                                    .putString("last_pkg", QISHUI_PKG)
+                                    .putString("last_label", "汽水音乐")
+                                    .apply();
+
+                            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+                            Log.i(TAG, "🎧 已绑定汽水音乐控制器");
+                        } catch (Exception e) {
+                            Log.e(TAG, "❌ 绑定汽水音乐控制器失败", e);
+                        }
+
+                        // Flush pending results for Qishui
+                        if (pendingResults.containsKey("QISHUI_ROOT_PENDING")) {
+                            Result<List<MediaBrowserCompat.MediaItem>> res = pendingResults.remove("QISHUI_ROOT_PENDING");
+                            if (res != null) onLoadChildren(QISHUI_ROOT, res);
+                        }
+                    }
+                    @Override public void onConnectionFailed() {
+                        qishuiConnected = false;
+                        Log.e(TAG, "❌ 连接汽水音乐失败");
+                    }
+                    @Override public void onConnectionSuspended() {
+                        qishuiConnected = false;
+                    }
+                }, null);
+        qishuiBrowser.connect();
+    }
+
     /**
      * Subscribe to a Lazy Audio path via our browser and forward the results to
      * the Android Auto result object.
@@ -810,6 +859,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     public void onLoadChildren(@NonNull String parentId,
                                @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
         if ("root".equals(parentId)) {
+            List<MediaBrowserCompat.MediaItem> root = new ArrayList<>();
             // Top-level: show a single "懒人听书" folder
             android.support.v4.media.MediaDescriptionCompat desc =
                     new android.support.v4.media.MediaDescriptionCompat.Builder()
@@ -818,35 +868,62 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                             .setSubtitle("点击浏览有声书")
                             .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_audio))
                             .build();
-            List<MediaBrowserCompat.MediaItem> root = new ArrayList<>();
             root.add(new MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
+
+            // Qishui Music folder
+            android.support.v4.media.MediaDescriptionCompat qishuiDesc =
+                    new android.support.v4.media.MediaDescriptionCompat.Builder()
+                            .setMediaId("QISHUI_ROOT")
+                            .setTitle("汽水音乐")
+                            .setSubtitle("发现好音乐")
+                            .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_music))
+                            .build();
+            root.add(new MediaBrowserCompat.MediaItem(qishuiDesc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
+
             result.sendResult(root);
             return;
         }
 
-        // Strip our namespace prefix to get the real Lazy Audio parent ID
-        String lazyParentId;
-        if (LAZY_ROOT.equals(parentId)) {
-            // The root of the Lazy Audio tree
-            if (!lazyConnected || lazyBrowser == null) {
-                pendingResults.put(lazyBrowser != null ? lazyBrowser.getRoot() : parentId, result);
-                if (lazyBrowser == null || !lazyBrowser.isConnected()) connectLazyAudio();
+        // Handle Proxied Browsing
+        if (parentId.equals(LAZY_ROOT) || parentId.startsWith("LAZY_")) {
+            String lazyParentId;
+            if (LAZY_ROOT.equals(parentId)) {
+                if (!lazyConnected || lazyBrowser == null) {
+                    pendingResults.put("LAZY_ROOT_PENDING", result);
+                    if (lazyBrowser == null || !lazyBrowser.isConnected()) connectLazyAudio();
+                    return;
+                }
+                lazyParentId = lazyBrowser.getRoot();
+            } else {
+                lazyParentId = parentId.substring(5);
+            }
+            subscribeAndDeliver(lazyParentId, result);
+        } else if (parentId.equals(QISHUI_ROOT) || parentId.startsWith("QISHUI_")) {
+            if (!qishuiConnected || qishuiBrowser == null) {
+                pendingResults.put("QISHUI_ROOT_PENDING", result);
+                if (qishuiBrowser == null || !qishuiBrowser.isConnected()) connectQishuiMusic();
                 return;
             }
-            lazyParentId = lazyBrowser.getRoot();
-        } else if (parentId.startsWith(LAZY_ROOT + ":")) {
-            lazyParentId = parentId.substring((LAZY_ROOT + ":").length());
+            String qishuiParentId = QISHUI_ROOT.equals(parentId) ? qishuiBrowser.getRoot() : parentId.substring(7);
+            qishuiBrowser.subscribe(qishuiParentId, new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
+                @Override
+                public void onChildrenLoaded(@NonNull String pId, @NonNull java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
+                    java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> proxied = new java.util.ArrayList<>();
+                    for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
+                        android.support.v4.media.MediaDescriptionCompat d = item.getDescription();
+                        android.support.v4.media.MediaDescriptionCompat newD = new android.support.v4.media.MediaDescriptionCompat.Builder()
+                                .setMediaId("QISHUI_" + d.getMediaId())
+                                .setTitle(d.getTitle())
+                                .setSubtitle(d.getSubtitle())
+                                .setIconUri(d.getIconUri())
+                                .build();
+                        proxied.add(new android.support.v4.media.MediaBrowserCompat.MediaItem(newD, item.getFlags()));
+                    }
+                    result.sendResult(proxied);
+                }
+            });
         } else {
-            // Unknown path
             result.sendResult(Collections.emptyList());
-            return;
         }
-
-        if (!lazyConnected) {
-            pendingResults.put(lazyParentId, result);
-            return;
-        }
-
-        subscribeAndDeliver(lazyParentId, result);
     }
 }

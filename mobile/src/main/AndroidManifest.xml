@@ -7,6 +7,7 @@
 
     <queries>
         <package android:name="bubei.tingshu.international" />
+        <package android:name="com.luna.music" />
         <intent>
             <action android:name="android.media.browse.MediaBrowserService" />
         </intent>
