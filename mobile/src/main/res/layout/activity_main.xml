@@ -91,11 +91,24 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginEnd="6dp"
+            android:layout_marginEnd="4dp"
             android:text="其他"
             app:icon="@drawable/ic_shuffle_24dp"
             app:iconSize="20dp"
             app:iconPadding="4dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_test_qq"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="4dp"
+            android:text="QQ"
+            app:icon="@drawable/ic_qq_music"
+            app:iconSize="20dp"
+            app:iconPadding="4dp"
+            app:iconTint="@null" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_test_qishui"
@@ -103,7 +116,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginHorizontal="6dp"
+            android:layout_marginHorizontal="4dp"
             android:text="汽水"
             app:icon="@drawable/ic_qishui_music"
             app:iconSize="20dp"
@@ -116,7 +129,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="4dp"
             android:text="懒人"
             app:icon="@drawable/ic_lazy_audio"
             app:iconSize="20dp"

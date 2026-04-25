@@ -42,6 +42,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private static final String CUSTOM_ACTION_REPEAT_MODE = "com.haifeng.REPEAT_MODE";
     private static final String CUSTOM_ACTION_SWITCH_LAZY = "com.haifeng.SWITCH_LAZY";
     private static final String CUSTOM_ACTION_SWITCH_QISHUI = "com.haifeng.SWITCH_QISHUI";
+    private static final String CUSTOM_ACTION_SWITCH_QQ = "com.haifeng.SWITCH_QQ";
     private static final String LAZY_ROOT = "LAZY_ROOT";
     private static final String QISHUI_ROOT = "QISHUI_ROOT";
 
@@ -290,6 +291,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                         CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
+                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                        CUSTOM_ACTION_SWITCH_QQ, "QQ音乐", R.drawable.ic_qq_music).build());
 
                 mSession.setPlaybackState(builder.build());
                 return;
@@ -338,6 +341,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
             builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                     CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
+            builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                    CUSTOM_ACTION_SWITCH_QQ, "QQ音乐", R.drawable.ic_qq_music).build());
 
             mSession.setPlaybackState(builder.build());
         }
@@ -419,6 +424,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
         ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                 CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
+
+        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                CUSTOM_ACTION_SWITCH_QQ, "QQ音乐", R.drawable.ic_qq_music).build());
 
         mSession.setPlaybackState(ps.build());
     }
@@ -640,6 +648,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     connectLazyAudio();
                 } else if (CUSTOM_ACTION_SWITCH_QISHUI.equals(action)) {
                     connectQishuiMusic();
+                } else if (CUSTOM_ACTION_SWITCH_QQ.equals(action)) {
+                    // Force switch to QQ Music session
+                    getSharedPreferences("session_pref", MODE_PRIVATE)
+                            .edit()
+                            .putString("last_pkg", "com.tencent.qqmusic")
+                            .putString("last_label", "QQ音乐")
+                            .apply();
+                    LocalBroadcastManager.getInstance(MyMusicService.this)
+                            .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                                    .putExtra("pkg", "com.tencent.qqmusic")
+                                    .putExtra("label", "QQ音乐"));
+                    LocalBroadcastManager.getInstance(MyMusicService.this)
+                            .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
                 }
             }
         });

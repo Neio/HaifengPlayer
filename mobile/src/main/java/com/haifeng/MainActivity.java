@@ -201,6 +201,7 @@ public class MainActivity extends AppCompatActivity {
         Button pickBtn = findViewById(R.id.btn_pick_session);
         findViewById(R.id.btn_test_lazy).setOnClickListener(v -> testLazyAudioProxy());
         findViewById(R.id.btn_test_qishui).setOnClickListener(v -> testQishuiMusicProxy());
+        findViewById(R.id.btn_test_qq).setOnClickListener(v -> testQQMusicProxy());
         pickBtn.setOnClickListener(v -> {
             // 先检查是否已授予通知监听权限
             if (!com.haifeng.NotifAccessHelper.isEnabled(this)) {
@@ -627,5 +628,29 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }, null);
         lazyBrowser.connect();
+    }
+
+    private void testQQMusicProxy() {
+        String pkg = "com.tencent.qqmusic";
+        String label = "QQ音乐";
+
+        getSharedPreferences("session_pref", Context.MODE_PRIVATE)
+                .edit()
+                .putString("last_pkg", pkg)
+                .putString("last_label", label)
+                .apply();
+
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                        .putExtra("pkg", pkg)
+                        .putExtra("label", label));
+
+        LocalBroadcastManager.getInstance(this)
+                .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+
+        // For QQ, we don't need a browser proxy, just sniff the token
+        if (lazyBrowser != null && lazyBrowser.isConnected()) {
+            lazyBrowser.disconnect();
+        }
     }
 }
