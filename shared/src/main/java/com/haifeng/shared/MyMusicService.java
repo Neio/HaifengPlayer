@@ -1012,6 +1012,12 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         if (lazyBrowser != null && lazyBrowser.isConnected()) {
             lazyBrowser.disconnect();
         }
+        if (qishuiBrowser != null && qishuiBrowser.isConnected()) {
+            qishuiBrowser.disconnect();
+        }
+        if (qqBrowser != null && qqBrowser.isConnected()) {
+            qqBrowser.disconnect();
+        }
         LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
         lbm.unregisterReceiver(tokenRx);
         lbm.unregisterReceiver(autoLyricsReceiver);
