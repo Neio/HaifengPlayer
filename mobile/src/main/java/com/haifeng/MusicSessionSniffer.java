@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 Haifeng Player Authors
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 package com.haifeng;
 
 import android.annotation.SuppressLint;

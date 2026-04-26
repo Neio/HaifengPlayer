@@ -29,9 +29,25 @@ export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 ./gradlew assembleDebug
 ```
 
+## ⚖️ License
+
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+
+## 📦 Third-Party Compliance & Integrations
+
+Haifeng Player is designed to interface with third-party audio applications. 
+
+### Open Source Dependencies
+All major dependencies (AndroidX, Material Components, Kotlin) are licensed under the **Apache License 2.0** or **EPL 1.0**. A full list can be found in the [NOTICE](NOTICE) file.
+
+
+
 ---
 
 *Haifeng Player - Smooth as the ocean breeze.*
 
 > [!NOTE]
 > This project is a specialized fork and rebrand of the original [NuomiPlayer](https://github.com/charlottejas/NuomiPlayer).
+
+### ⚠️ Trademark Disclaimer
+All product names, logos, and brands mentioned in this project (including **QQ Music**, **Lazy Audio**, and **Qishui Music**) are property of their respective owners. All company, product, and service names used in this website/app are for identification purposes only. Use of these names, logos, and brands does not imply endorsement or affiliation.
