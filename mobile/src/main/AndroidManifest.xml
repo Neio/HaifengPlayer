@@ -4,10 +4,18 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- Required to connect to Qishui Music (汽水音乐) -->
+    <uses-permission android:name="com.luna.biz.playing.permission.MEDIA_BROWSE" />
 
     <queries>
         <package android:name="bubei.tingshu.international" />
         <package android:name="com.luna.music" />
+        <package android:name="com.tencent.qqmusic" />
+        <package android:name="com.tencent.qqmusiccar" />
+        <package android:name="com.tencent.qqmusicpad" />
         <intent>
             <action android:name="android.media.browse.MediaBrowserService" />
         </intent>
@@ -40,13 +48,22 @@
         <service
             android:name="com.haifeng.shared.MyMusicService"
             android:exported="true"
-            android:enabled="true">
+            android:enabled="true"
+            android:foregroundServiceType="mediaPlayback">
 
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
 
         </service>
+
+        <receiver android:name="androidx.media.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".MusicSessionSniffer"

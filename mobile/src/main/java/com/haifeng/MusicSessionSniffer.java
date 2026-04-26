@@ -37,12 +37,13 @@ public class MusicSessionSniffer extends NotificationListenerService {
     @Override public void onCreate() {
         super.onCreate();
         Log.i("Sniffer", "🚀 MusicSessionSniffer 启动");
-        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
-        lbm.registerReceiver(reqTokenRx, new IntentFilter(ACTION_REQ_TOKEN));
+        registerReceiver(reqTokenRx, new IntentFilter(ACTION_REQ_TOKEN), Context.RECEIVER_NOT_EXPORTED);
     }
 
     @Override public void onDestroy() {
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(reqTokenRx);
+        try {
+            unregisterReceiver(reqTokenRx);
+        } catch (Exception ignored) {}
         Log.i("Sniffer", "🛑 MusicSessionSniffer 已销毁");
         super.onDestroy();
     }
@@ -129,13 +130,18 @@ public class MusicSessionSniffer extends NotificationListenerService {
     }
 
     private void sendTokenIfAny() {
-        if (selectedCtrl == null || selectedPkg == null) return;
-        MediaSessionCompat.Token compat = MediaSessionCompat.Token.fromToken(selectedCtrl.getSessionToken());
-        Intent i = new Intent(ACTION_CONTROLLER);
-        i.putExtra("pkg", selectedPkg);
-        i.putExtra("binder", compat);
-        LocalBroadcastManager.getInstance(this).sendBroadcast(i);
-        Log.i("Sniffer", "📡 已发送 Token 给应用: " + selectedPkg);
+        Intent intent = new Intent(ACTION_CONTROLLER);
+        intent.setPackage(getPackageName()); // 🎯 Targeting our own app
+        intent.putExtra("pkg", selectedPkg);
+        
+        if (selectedCtrl != null) {
+            MediaSessionCompat.Token token = MediaSessionCompat.Token.fromToken(selectedCtrl.getSessionToken());
+            intent.putExtra("binder", token);
+            Log.i("Sniffer", "📡 已发送 Global Token 广播: " + selectedPkg);
+        } else {
+            Log.i("Sniffer", "📡 发送空 Token 广播以清除 Switch 状态: " + selectedPkg);
+        }
+        sendBroadcast(intent);
     }
 
     /* --- 调试打印（中文版本） --- */

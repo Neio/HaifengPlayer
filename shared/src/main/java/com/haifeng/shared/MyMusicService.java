@@ -3,6 +3,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.view.KeyEvent;
 
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
@@ -21,6 +22,7 @@ import androidx.media.MediaBrowserServiceCompat;
 
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaControllerCompat;
+import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
@@ -38,19 +40,22 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private MediaControllerCompat remoteCtrl;                  // 指向外部播放器的控制器（QQ 或 NCM）
     private final MediaControllerCompat.Callback remoteCb = new RemoteCallback(); // 监听状态变化
 
-    private static final String CUSTOM_ACTION_SHOW_LYRICS = "com.haifeng.SHOW_LYRICS";
-    private static final String CUSTOM_ACTION_REPEAT_MODE = "com.haifeng.REPEAT_MODE";
-    private static final String CUSTOM_ACTION_SWITCH_LAZY = "com.haifeng.SWITCH_LAZY";
-    private static final String CUSTOM_ACTION_SWITCH_QISHUI = "com.haifeng.SWITCH_QISHUI";
-    private static final String CUSTOM_ACTION_SWITCH_QQ = "com.haifeng.SWITCH_QQ";
+    private static final String CUSTOM_ACTION_SHOW_LYRICS = "ACTION_LYRICS";
+    private static final String CUSTOM_ACTION_REPEAT_MODE = "ACTION_REPEAT";
+    private static final String CUSTOM_ACTION_SWITCH_LAZY = "ACTION_LAZY";
+    private static final String CUSTOM_ACTION_SWITCH_QISHUI = "ACTION_QISHUI";
+    private static final String CUSTOM_ACTION_SWITCH_QQ = "ACTION_QQ";
     private static final String LAZY_ROOT = "LAZY_ROOT";
     private static final String QISHUI_ROOT = "QISHUI_ROOT";
 
     private static final String LAZY_PKG = "bubei.tingshu.international";
-    private static final String LAZY_SVC = "com.bubei.tingshu.service.MediaBrowserService";
+    private static final String LAZY_SVC = "tingshu.bubei.mediasupport.service.MediaSessionBrowserService";
 
     private static final String QISHUI_PKG = "com.luna.music";
     private static final String QISHUI_SVC = "com.luna.biz.playing.player.PlayerService";
+
+    private static final String QQ_PKG = "com.tencent.qqmusic";
+    private static final String QQ_SVC = "com.tencent.qqmusic.MediaSessionBrowserService";
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
@@ -88,21 +93,55 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
     private android.support.v4.media.MediaBrowserCompat lazyBrowser;
     private boolean lazyConnected = false;
+    private boolean lazyConnecting = false;
 
     private android.support.v4.media.MediaBrowserCompat qishuiBrowser;
     private boolean qishuiConnected = false;
+    private boolean qishuiConnecting = false;
 
-    // Pending deferred results waiting for Lazy Audio connection
+    private android.support.v4.media.MediaBrowserCompat qqBrowser;
+    private boolean qqConnected = false;
+    private boolean qqConnecting = false;
+
+    // Pending deferred results waiting for connections
     private final java.util.concurrent.ConcurrentHashMap<String, Result<List<MediaBrowserCompat.MediaItem>>>
             pendingResults = new java.util.concurrent.ConcurrentHashMap<>();
 
-    private void updateSessionActive(String reason) {
-        // ALWAYS active in NcmMode (Lazy/Qishui) or when Lyrics are on
-        boolean should = isNcmMode || isLyricsMode;
-        if (mSession.isActive() != should) {
-            mSession.setActive(should);
-            Log.i(TAG, "setActive=" + should + " reason=" + reason);
+    /**
+     * 🎯 START/UPDATE FOREGROUND: Mandatory for Android 14+ Custom Buttons
+     */
+    private void updateForegroundNotification() {
+        androidx.core.app.NotificationCompat.Builder builder = new androidx.core.app.NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_lyrics_24dp)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true);
+
+        if (lastRemoteMeta != null) {
+            builder.setContentTitle(lastRemoteMeta.getString(MediaMetadataCompat.METADATA_KEY_TITLE))
+                   .setContentText(lastRemoteMeta.getString(MediaMetadataCompat.METADATA_KEY_ARTIST));
+        } else {
+            builder.setContentTitle("糯米播放器")
+                   .setContentText("正在同步车机内容...");
         }
+
+        android.app.Notification notification = builder.build();
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        } else {
+            startForeground(NOTIF_ID, notification);
+        }
+    }
+
+    private void updateSessionActive(String debugTag) {
+        if (!mSession.isActive()) {
+            mSession.setActive(true);
+            Log.i(TAG, "🟢 Session ACTIVATE [" + debugTag + "]");
+        }
+        
+        // ⚡ JOLT: Update extras to force Android Auto UI refresh
+        Bundle extras = new Bundle();
+        extras.putLong("haifeng.refresh_token", System.currentTimeMillis());
+        mSession.setExtras(extras);
     }
 
     private PlaybackStateCompat buildMinimalState(int state, long pos, float speed) {
@@ -184,11 +223,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             mirror(m, null);
         }
 
-        @Override public void onPlaybackStateChanged(PlaybackStateCompat s) {
-            lastRemoteState = s; // 缓存给 QQ 歌词模式
-            mirror(null, s);
+        @Override public void onPlaybackStateChanged(PlaybackStateCompat state) {
+            mirror(remoteCtrl == null ? null : remoteCtrl.getMetadata(), state);
         }
-    }
+    };
+
+    private final Runnable progressHeartbeat = new Runnable() {
+        @Override
+        public void run() {
+            if (remoteCtrl != null) {
+                mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+            }
+        }
+    };
 
     // =========================================================
     // 🪞 同步信息到本地 Session（根据当前来源分支）
@@ -201,111 +248,85 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 // QQ 歌词模式：覆盖为“当前句/下一句”
                 applyLyricsOverlay(meta);
             } else {
-                // QQ 非歌词模式 或 NCM 模式：原样映射标准字段
-                MediaMetadataCompat.Builder builder = new MediaMetadataCompat.Builder();
-
                 String title = meta.getString(MediaMetadataCompat.METADATA_KEY_TITLE);
                 String artist = meta.getString(MediaMetadataCompat.METADATA_KEY_ARTIST);
-
                 long duration = meta.getLong(MediaMetadataCompat.METADATA_KEY_DURATION);
 
-                // QQ 模式保留 playMode；NCM 没有该私有键，忽略即可
-                if (!isNcmMode) {
-                    long playMode = meta.getLong("ucar.media.metadata.PLAY_MODE");
-                    lastPlayMode = (int) playMode;
+                // 🚀 LYRIC-STABLE DEDUPLICATION:
+                // We compare against the "Real" Title/Artist, ignoring the overlaid lyrics.
+                String lastTrueTitle = mSession.getController().getMetadata() == null ? null : 
+                                      mSession.getController().getMetadata().getString("ucar.media.metadata.ORIGINAL_TITLE");
+                String lastTrueArtist = mSession.getController().getMetadata() == null ? null :
+                                       mSession.getController().getMetadata().getString("ucar.media.metadata.ORIGINAL_ARTIST");
+                
+                boolean realSongChanged = !java.util.Objects.equals(title, lastTrueTitle) || 
+                                          !java.util.Objects.equals(artist, lastTrueArtist);
+
+                // We also check if the *rendered* metadata changed (to know if we should update the lyric text)
+                String lastRenderedTitle = mSession.getController().getMetadata() == null ? null :
+                                          mSession.getController().getMetadata().getString(MediaMetadataCompat.METADATA_KEY_TITLE);
+                boolean renderedChanged = !java.util.Objects.equals(title, lastRenderedTitle);
+
+                if (renderedChanged) {
+                    MediaMetadataCompat.Builder builder = new MediaMetadataCompat.Builder(meta);
+                    // Store the "Real" identity for the next comparison
+                    builder.putString("ucar.media.metadata.ORIGINAL_TITLE", title);
+                    builder.putString("ucar.media.metadata.ORIGINAL_ARTIST", artist);
+
+                    if (duration <= 0 && st != null && st.getExtras() != null) {
+                        duration = st.getExtras().getLong("android.media.metadata.DURATION");
+                    }
+                    builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration > 0 ? duration : 3600000L);
+
+                    // Bitmap Logic
+                    Bitmap art = null;
+                    if (isNcmMode) {
+                        art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
+                        if (art == null) art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON);
+                        if (art == null) art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
+                    } else {
+                        art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
+                    }
+                    if (art != null) builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
+
+                    mSession.setMetadata(builder.build());
+                    updateForegroundNotification();
+                    
+                    // 🚀 CRITICAL: Only Jolt if the REAL song changed. 
+                    // Lyric updates remain "Silent" to keep buttons stable.
+                    if (realSongChanged) {
+                        updateSessionActive("mirror_song_changed");
+                    }
                 }
-
-                builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
-                builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist);
-
-                if (duration > 0)
-                    builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration);
-
-                // ✅ 仅在“非 QQ 模式”启用封面位图兜底；QQ 模式保持你原来的只取 ALBUM_ART 行为
-                Bitmap art = null;
-                if (isNcmMode) {
-                    // 非 QQ：位图优先顺序 ALBUM_ART → DISPLAY_ICON → ART
-                    art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
-                    if (art == null) art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON);
-                    if (art == null) art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
-                } else {
-                    // QQ：保持原逻辑（只取 ALBUM_ART）
-                    art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
-                }
-
-                if (art != null) {
-                    builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
-                }
-
-                mSession.setMetadata(builder.build());
             }
+        } else {
+            // 🛡️ FALLBACK: If app provides no metadata, show the App Label to clear "Switching..."
+            SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
+            String label = sp.getString("last_label", "海风播放器");
+            mSession.setMetadata(new MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, label)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "已准备就绪")
+                    .build());
+            Log.i(TAG, "ℹ️ Mirror: 远端无元数据，使用占位符 [" + label + "]");
         }
 
         // --- 2. 同步播放状态 ---
         if (st != null) {
-
-            // QQ 歌词模式专用分支（NCM 模式强制关闭歌词，不走此分支）
-            if (!isNcmMode && isLyricsMode) {
-                if (!suppressRemoteState) {
-                    basePosMs = st.getPosition();
-                    baseSpeed = st.getPlaybackSpeed();
-                    baseState = st.getState();
-                    baseUpdateElapsed = SystemClock.elapsedRealtime();
-                }
-
-                int code = st.getState();
-                if (code == PlaybackStateCompat.STATE_NONE || code == PlaybackStateCompat.STATE_STOPPED) {
-                    code = PlaybackStateCompat.STATE_PAUSED; // 避免 AA 跳回浏览页
-                }
-
-                PlaybackStateCompat.Builder builder = new PlaybackStateCompat.Builder()
-                        .setState(code, clockPosition(), (baseSpeed == 0f ? 1.0f : baseSpeed))
-                        .setActions(
-                                PlaybackStateCompat.ACTION_PLAY |
-                                        PlaybackStateCompat.ACTION_PAUSE |
-                                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-                                        PlaybackStateCompat.ACTION_SEEK_TO |
-                                        PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                                        PlaybackStateCompat.ACTION_FAST_FORWARD |
-                                        PlaybackStateCompat.ACTION_REWIND
-                        );
-
-                // 自定义按钮（仅 QQ 模式展示）
-                int lyricsIconRes = isLyricsMode ? R.drawable.ic_lyrics_24dp : R.drawable.ic_lyrics_outline_24dp;
-                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                        CUSTOM_ACTION_SHOW_LYRICS, "歌词", lyricsIconRes).build());
-
-                int repeatIconRes;
-                switch (lastPlayMode) {
-                    case 1: repeatIconRes = R.drawable.ic_repeat_one_24dp; break;
-                    case 0: repeatIconRes = R.drawable.ic_shuffle_24dp;    break;
-                    case 2:
-                    default: repeatIconRes = R.drawable.ic_repeat_24dp;    break;
-                }
-                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                        CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
-
-                // Also show Switch Buttons in Lyrics Mode
-                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                        CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
-                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                        CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
-                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                        CUSTOM_ACTION_SWITCH_QQ, "QQ音乐", R.drawable.ic_qq_music).build());
-
-                mSession.setPlaybackState(builder.build());
-                return;
+            // 🎯 SHARED STATE LOGIC: Update our clock for ALL modes
+            if (!suppressRemoteState) {
+                basePosMs = st.getPosition();
+                baseSpeed = st.getPlaybackSpeed();
+                baseState = st.getState();
+                baseUpdateElapsed = SystemClock.elapsedRealtime();
             }
 
-            // Common branch for QQ Non-lyrics or Ncm Mode (Lazy/Qishui)
             int code = st.getState();
             if (code == PlaybackStateCompat.STATE_NONE || code == PlaybackStateCompat.STATE_STOPPED) {
-                return;
+                code = PlaybackStateCompat.STATE_PAUSED; // 避免 AA 跳回浏览页
             }
 
             PlaybackStateCompat.Builder builder = new PlaybackStateCompat.Builder()
-                    .setState(code, st.getPosition(), st.getPlaybackSpeed())
+                    .setState(code, clockPosition(), (baseSpeed == 0f ? 1.0f : baseSpeed), SystemClock.elapsedRealtime())
                     .setActions(
                             PlaybackStateCompat.ACTION_PLAY |
                             PlaybackStateCompat.ACTION_PAUSE |
@@ -313,42 +334,57 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                             PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
                             PlaybackStateCompat.ACTION_SEEK_TO |
                             PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                            PlaybackStateCompat.ACTION_FAST_FORWARD |
-                            PlaybackStateCompat.ACTION_REWIND
+                            PlaybackStateCompat.ACTION_PREPARE |
+                            PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+                            PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
+                            PlaybackStateCompat.ACTION_SET_RATING
                     );
 
-            // Add Custom Buttons
+            // 🎤 Custom Actions (Lyrics & Repeat) - 🚀 STABLE BUTTONS
             if (!isNcmMode) {
                 int lyricsIconRes = isLyricsMode ? R.drawable.ic_lyrics_24dp : R.drawable.ic_lyrics_outline_24dp;
-                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                        CUSTOM_ACTION_SHOW_LYRICS, "歌词", lyricsIconRes).build());
-
                 int repeatIconRes = R.drawable.ic_repeat_24dp;
                 if (meta != null) {
                     long playMode = meta.getLong("ucar.media.metadata.PLAY_MODE");
-                    switch ((int) playMode) {
-                        case 1: repeatIconRes = R.drawable.ic_repeat_one_24dp; break;
-                        case 0: repeatIconRes = R.drawable.ic_shuffle_24dp;    break;
-                        default: repeatIconRes = R.drawable.ic_repeat_24dp;    break;
-                    }
+                    if (playMode == 1) repeatIconRes = R.drawable.ic_repeat_one_24dp;
+                    else if (playMode == 0) repeatIconRes = R.drawable.ic_shuffle_24dp;
                 }
+
+                // Optimization: Custom actions cause UI redraws. 
+                // Only re-add them if they actually changed or if this is the initial metadata mirror.
+                builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
+                        CUSTOM_ACTION_SHOW_LYRICS, "歌词", lyricsIconRes).build());
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                         CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
             }
 
-            // Always show Switch Buttons for deep integrated apps
-            builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                    CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
-            builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                    CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
-            builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                    CUSTOM_ACTION_SWITCH_QQ, "QQ音乐", R.drawable.ic_qq_music).build());
-
+            /* 🧹 Switch buttons removed - handled by Browser menu now */
             mSession.setPlaybackState(builder.build());
+            
+            // 💓 PROGRESS HEARTBEAT: Force a refresh every 1s if playing
+            handler.removeCallbacks(progressHeartbeat);
+            if (code == PlaybackStateCompat.STATE_PLAYING) {
+                handler.postDelayed(progressHeartbeat, 1000);
+            }
+        } else {
+            // 🛡️ FALLBACK: If app provides no state, force PAUSED to clear BUFFERING animation in AA
+            PlaybackStateCompat.Builder builder = new PlaybackStateCompat.Builder()
+                    .setState(PlaybackStateCompat.STATE_PAUSED, 0, 1.0f)
+                    .setActions(
+                            PlaybackStateCompat.ACTION_PLAY |
+                            PlaybackStateCompat.ACTION_PAUSE |
+                            PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
+                            PlaybackStateCompat.ACTION_SEEK_TO |
+                            PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                            PlaybackStateCompat.ACTION_PREPARE |
+                            PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+                            PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
+                            PlaybackStateCompat.ACTION_SET_RATING
+                    );
+            mSession.setPlaybackState(builder.build());
+            Log.i(TAG, "ℹ️ Mirror: 远端无播放状态，强制 PAUSED 以清除 Buffer");
         }
-
-        // IMPORTANT: Update session active state to show in AA Right Panel
-        updateSessionActive("mirror");
     }
 
     // 仅在“QQ 歌词模式”调用：把当前/下一句覆盖到元数据
@@ -402,32 +438,14 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                 PlaybackStateCompat.ACTION_SEEK_TO |
                                 PlaybackStateCompat.ACTION_PLAY_PAUSE |
                                 PlaybackStateCompat.ACTION_FAST_FORWARD |
-                                PlaybackStateCompat.ACTION_REWIND
+                                PlaybackStateCompat.ACTION_REWIND |
+                                PlaybackStateCompat.ACTION_PREPARE |
+                                PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+                                PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
+                                PlaybackStateCompat.ACTION_SET_RATING
                 );
 
-        int lyricsIconRes = R.drawable.ic_lyrics_24dp;
-        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                CUSTOM_ACTION_SHOW_LYRICS, "歌词", lyricsIconRes).build());
-
-        int repeatIconRes;
-        switch (lastPlayMode) {
-            case 1: repeatIconRes = R.drawable.ic_repeat_one_24dp; break;
-            case 0: repeatIconRes = R.drawable.ic_shuffle_24dp;    break;
-            case 2:
-            default: repeatIconRes = R.drawable.ic_repeat_24dp;    break;
-        }
-        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                CUSTOM_ACTION_REPEAT_MODE, "循环", repeatIconRes).build());
-
-        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                CUSTOM_ACTION_SWITCH_LAZY, "懒人听书", R.drawable.ic_lazy_audio).build());
-
-        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                CUSTOM_ACTION_SWITCH_QISHUI, "汽水音乐", R.drawable.ic_qishui_music).build());
-
-        ps.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
-                CUSTOM_ACTION_SWITCH_QQ, "QQ音乐", R.drawable.ic_qq_music).build());
-
+        /* 🧹 Switch buttons removed - handled by Browser menu now */
         mSession.setPlaybackState(ps.build());
     }
 
@@ -436,10 +454,12 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // =========================================================
     private final BroadcastReceiver tokenRx = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
+            Log.i("Mirror", "🎯 [tokenRx] Received Broadcast: " + i.getAction());
             if (!ACTION_CONTROLLER.equals(i.getAction())) return;
 
             // 1) 广播来源的包名（Sniffer 填入）
             String sourcePkg = i.getStringExtra("pkg");
+            Log.i("Mirror", "🎯 [tokenRx] Source Package: " + sourcePkg);
             if (sourcePkg == null) {
                 Log.w("Mirror", "⚠️ 收到控制广播但缺少 pkg");
                 return;
@@ -448,6 +468,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             // 2) 只采纳“当前选中的包名”
             SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
             String chosenPkg = sp.getString("last_pkg", null);
+            Log.i("Mirror", "🎯 [tokenRx] Chosen Package in Prefs: " + chosenPkg);
             if (chosenPkg == null || !chosenPkg.equals(sourcePkg)) {
                 Log.i("Mirror", "ℹ️ 忽略不同来源广播，当前选择=" + chosenPkg + "，广播来自=" + sourcePkg);
                 return;
@@ -470,13 +491,25 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 }
             }
 
-            updateSessionActive("sourceChanged:" + sourcePkg);
-
-
             // 4) 取 Token → 绑定 Controller
             MediaSessionCompat.Token tk = i.getParcelableExtra("binder");
             if (tk == null) {
-                Log.w("Mirror", "⚠️ 广播中没有 binder Token");
+                Log.i("Mirror", "ℹ️ 收到空 Token，可能是应用未启动。强制刷新状态以清除 Switching 占位符。");
+                mirror(null, null);
+                return;
+            }
+
+            // 🚀 TOKEN STABILITY: Only jolt if the session identity actually changed.
+            // If it's the same token, don't trigger updateSessionActive to prevent AA flicker.
+            boolean isNewToken = (remoteCtrl == null || !remoteCtrl.getSessionToken().equals(tk));
+            if (isNewToken) {
+                updateSessionActive("sourceChanged:" + sourcePkg);
+            }
+
+            // 🚀 SNIFFER PRIORITY: Always accept Sniffer tokens even if bridged,
+            // because the Sniffer finds the ACTIVE player session which is more accurate.
+            if (remoteCtrl != null && remoteCtrl.getSessionToken().equals(tk)) {
+                Log.i("Mirror", "ℹ️ 已绑定到相同 Controller，忽略重复 Sniffer 广播: " + sourcePkg);
                 return;
             }
 
@@ -486,17 +519,14 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 }
                 remoteCtrl = new MediaControllerCompat(MyMusicService.this, tk);
                 remoteCtrl.registerCallback(remoteCb);
-                Log.i("Mirror", "✅ 已绑定远端控制器，pkg=" + sourcePkg);
-
-
-
+                
                 // 5) 同步一次
                 mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
-
-                updateSessionActive("autoLyricsOnStartup");
-
+                Log.i("Mirror", "✅ 绑定远端控制器 [Sniffer Path], pkg=" + sourcePkg);
+                
+                updateSessionActive("snifferUpdate");
             } catch (Exception e) {
-                Log.e("Mirror", "❌ 绑定控制器失败", e);
+                Log.e("Mirror", "❌ 绑定远端控制器失败 [Sniffer Path]", e);
             }
         }
     };
@@ -520,13 +550,35 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // =========================================================
     // 🚀 启动服务：初始化本地 MediaSession 并设置转发逻辑
     // =========================================================
+    private static final String CHANNEL_ID = "haifeng_mirror_channel";
+    private static final int NOTIF_ID = 1001;
+
     @Override
     public void onCreate() {
         super.onCreate();
 
+        // 1. Create Notification Channel for Android 8.0+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                    CHANNEL_ID, "海风播放器 · 车机同步",
+                    android.app.NotificationManager.IMPORTANCE_LOW);
+            android.app.NotificationManager manager = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (manager != null) manager.createNotificationChannel(channel);
+        }
+
         mSession = new MediaSessionCompat(this, "MirrorSession");
-        mSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS);
+        
+        // 🎯 LINK THE RECEIVER
+        Intent mbrIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
+        mbrIntent.setComponent(new android.content.ComponentName(this, androidx.media.session.MediaButtonReceiver.class));
+        android.app.PendingIntent mbrPendingIntent = android.app.PendingIntent.getBroadcast(this, 0, mbrIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+        mSession.setMediaButtonReceiver(mbrPendingIntent);
+
+        mSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         setSessionToken(mSession.getSessionToken());
+
+        // 🎯 START FOREGROUND: This is the "Key" to unlock buttons on Android 14+
+        updateForegroundNotification();
 
         mSession.setPlaybackState(buildMinimalState(
                 PlaybackStateCompat.STATE_NONE, 0, 0f));
@@ -534,12 +586,23 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
         mSession.setCallback(new MediaSessionCompat.Callback() {
 
+            @Override
+            public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
+                KeyEvent keyEvent = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                if (keyEvent != null) {
+                    Log.i(TAG, "⌨️ RAW KEY DETECTED: " + keyEvent.getKeyCode() + " (Action: " + keyEvent.getAction() + ")");
+                }
+                return super.onMediaButtonEvent(mediaButtonEvent);
+            }
+
             @Override public void onPlay() {
+                Log.i(TAG, "💓 HEARTBEAT: Play Clicked");
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().play();
             }
 
             @Override public void onPause() {
+                Log.i(TAG, "💓 HEARTBEAT: Pause Clicked");
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().pause();
             }
@@ -565,6 +628,20 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             }
 
             @Override public void onPlayFromMediaId(String mediaId, Bundle extras) {
+                Log.i(TAG, "🎯 onPlayFromMediaId: " + mediaId);
+                
+                // 🚀 EXPLICIT SWITCHING
+                if ("SWITCH_QQ".equals(mediaId)) {
+                    performManualSwitch("com.tencent.qqmusic", "QQ音乐");
+                    return;
+                } else if ("SWITCH_LAZY".equals(mediaId)) {
+                    performManualSwitch(LAZY_PKG, "懒人听书");
+                    return;
+                } else if ("SWITCH_QISHUI".equals(mediaId)) {
+                    performManualSwitch(QISHUI_PKG, "汽水音乐");
+                    return;
+                }
+
                 String realId = mediaId;
                 if (mediaId.startsWith("LAZY_")) {
                     realId = mediaId.substring(5);
@@ -608,9 +685,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
             @Override
             public void onCustomAction(String action, Bundle extras) {
-                // NCM 模式下直接忽略自定义按钮
-                if (isNcmMode) return;
-
+                // 🕵️‍♂️ THE "TRUTH" LOG: If the car sends ANYTHING, we see it here first
+                Log.i(TAG, "🎯>>> RECEIVED CUSTOM ACTION: [" + action + "]");
+                
                 if (CUSTOM_ACTION_SHOW_LYRICS.equals(action)) {
                     isLyricsMode = !isLyricsMode;
 
@@ -645,37 +722,23 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         }
                     }, 500);
                 } else if (CUSTOM_ACTION_SWITCH_LAZY.equals(action)) {
-                    connectLazyAudio();
+                    performManualSwitch(LAZY_PKG, "懒人听书");
                 } else if (CUSTOM_ACTION_SWITCH_QISHUI.equals(action)) {
-                    connectQishuiMusic();
+                    performManualSwitch(QISHUI_PKG, "汽水音乐");
                 } else if (CUSTOM_ACTION_SWITCH_QQ.equals(action)) {
-                    // Force switch to QQ Music session
-                    getSharedPreferences("session_pref", MODE_PRIVATE)
-                            .edit()
-                            .putString("last_pkg", "com.tencent.qqmusic")
-                            .putString("last_label", "QQ音乐")
-                            .apply();
-                    LocalBroadcastManager.getInstance(MyMusicService.this)
-                            .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                                    .putExtra("pkg", "com.tencent.qqmusic")
-                                    .putExtra("label", "QQ音乐"));
-                    LocalBroadcastManager.getInstance(MyMusicService.this)
-                            .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+                    performManualSwitch("com.tencent.qqmusic", "QQ音乐");
                 }
             }
         });
 
-        // 同时注册 QQ / NCM 的 Token 广播
-        LocalBroadcastManager lbm = LocalBroadcastManager.getInstance(this);
-        lbm.registerReceiver(tokenRx, new IntentFilter(ACTION_CONTROLLER));
+        // 注册 Token 广播 (Internal)
+        registerReceiver(tokenRx, new IntentFilter(ACTION_CONTROLLER), Context.RECEIVER_NOT_EXPORTED);
+
+        // 注册“自动歌词模式”广播 (Internal)
+        registerReceiver(autoLyricsReceiver, new IntentFilter(ACTION_TOGGLE_LYRICS_MODE), Context.RECEIVER_NOT_EXPORTED);
 
         // 连接懒人听书 MediaBrowserService（Data Proxy）
         connectLazyAudio();
-
-
-
-        // 注册“自动歌词模式”广播
-        lbm.registerReceiver(autoLyricsReceiver, new IntentFilter(ACTION_TOGGLE_LYRICS_MODE));
 
 
         // 自动歌词模式：仅在 QQ 模式下可自动开启（NCM 模式忽略）
@@ -692,24 +755,30 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 baseUpdateElapsed = SystemClock.elapsedRealtime();
             }
 
-            handler.post(lyricsUpdater);
-            if (remoteCtrl != null) {
-                applyLyricsOverlay(lastRemoteMeta);
-                mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
-            }
         }
+        handler.post(lyricsUpdater);
+        if (remoteCtrl != null) {
+            applyLyricsOverlay(lastRemoteMeta);
+            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+        }
+        updateSessionActive("onCreate");
     }
 
     // =========================================================
     // 懒人听书 Data Proxy 连接管理
     // =========================================================
     private void connectLazyAudio() {
+        if (lazyConnecting || (lazyBrowser != null && lazyBrowser.isConnected())) return;
+        lazyConnecting = true;
+        Log.i(TAG, "🔌 正在连接懒人听书...");
+
         android.content.ComponentName cn = new android.content.ComponentName(LAZY_PKG, LAZY_SVC);
         lazyBrowser = new android.support.v4.media.MediaBrowserCompat(
                 this, cn,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
                     @Override public void onConnected() {
                         lazyConnected = true;
+                        lazyConnecting = false;
                         Log.i(TAG, "✅ 已连接懒人听书 MediaBrowserService，root=" + lazyBrowser.getRoot());
 
                         // 🎯 Key: grab the current MediaSession token directly from the browser.
@@ -731,26 +800,34 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                     .putString("last_label", "懒人听书")
                                     .apply();
 
-                            // Mirror current state immediately → car screen shows chapter + progress
-                            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
-                            Log.i(TAG, "🎧 已绑定懒人听书控制器，立即同步当前章节与进度");
+                            // 🎯 MIRROR ONLY with Delay
+                            handler.postDelayed(() -> {
+                                mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+                                Log.i(TAG, "🎧 已绑定懒人听书控制器并同步状态 [Delayed Mirror]");
+                            }, 500);
                         } catch (Exception e) {
                             Log.e(TAG, "❌ 绑定懒人听书控制器失败", e);
                         }
 
                         // Flush any pending results that arrived before the connection was ready
-                        for (java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e
-                                : pendingResults.entrySet()) {
-                            subscribeAndDeliver(e.getKey(), e.getValue());
+                        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults.entrySet().iterator();
+                        while (it.hasNext()) {
+                            java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e = it.next();
+                            if (e.getKey().startsWith("LAZY_")) {
+                                onLoadChildren(e.getKey().equals("LAZY_ROOT_PENDING") ? LAZY_ROOT : e.getKey(), e.getValue());
+                                it.remove();
+                            }
                         }
-                        pendingResults.clear();
                     }
                     @Override public void onConnectionFailed() {
                         lazyConnected = false;
+                        lazyConnecting = false;
                         Log.e(TAG, "❌ 连接懒人听书失败");
+                        flushPendingError("LAZY_");
                     }
                     @Override public void onConnectionSuspended() {
                         lazyConnected = false;
+                        lazyConnecting = false;
                         Log.w(TAG, "⚠️ 懒人听书连接已挂起");
                     }
                 }, null);
@@ -758,12 +835,17 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     }
 
     private void connectQishuiMusic() {
+        if (qishuiConnecting || (qishuiBrowser != null && qishuiBrowser.isConnected())) return;
+        qishuiConnecting = true;
+        Log.i(TAG, "🔌 正在连接汽水音乐...");
+
         android.content.ComponentName cn = new android.content.ComponentName(QISHUI_PKG, QISHUI_SVC);
         qishuiBrowser = new android.support.v4.media.MediaBrowserCompat(
                 this, cn,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
                     @Override public void onConnected() {
                         qishuiConnected = true;
+                        qishuiConnecting = false;
                         Log.i(TAG, "✅ 已连接汽水音乐 MediaBrowserService，root=" + qishuiBrowser.getRoot());
 
                         try {
@@ -780,27 +862,99 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                     .putString("last_label", "汽水音乐")
                                     .apply();
 
-                            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
-                            Log.i(TAG, "🎧 已绑定汽水音乐控制器");
+                            // 🎯 MIRROR ONLY with Delay
+                            handler.postDelayed(() -> {
+                                mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+                                Log.i(TAG, "🎧 已绑定汽水音乐控制器并同步状态 [Delayed Mirror]");
+                            }, 500);
                         } catch (Exception e) {
                             Log.e(TAG, "❌ 绑定汽水音乐控制器失败", e);
                         }
 
                         // Flush pending results for Qishui
-                        if (pendingResults.containsKey("QISHUI_ROOT_PENDING")) {
-                            Result<List<MediaBrowserCompat.MediaItem>> res = pendingResults.remove("QISHUI_ROOT_PENDING");
-                            if (res != null) onLoadChildren(QISHUI_ROOT, res);
+                        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults.entrySet().iterator();
+                        while (it.hasNext()) {
+                            java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e = it.next();
+                            if (e.getKey().startsWith("QISHUI_")) {
+                                onLoadChildren(e.getKey().equals("QISHUI_ROOT_PENDING") ? QISHUI_ROOT : e.getKey(), e.getValue());
+                                it.remove();
+                            }
                         }
                     }
                     @Override public void onConnectionFailed() {
                         qishuiConnected = false;
+                        qishuiConnecting = false;
                         Log.e(TAG, "❌ 连接汽水音乐失败");
+                        flushPendingError("QISHUI_");
                     }
                     @Override public void onConnectionSuspended() {
                         qishuiConnected = false;
+                        qishuiConnecting = false;
                     }
                 }, null);
         qishuiBrowser.connect();
+    }
+
+    private void connectQQMusic() {
+        if (qqConnecting || (qqBrowser != null && qqBrowser.isConnected())) return;
+        qqConnecting = true;
+        Log.i(TAG, "🔌 正在通过 Direct Bridge 连接 QQ 音乐...");
+
+        android.content.ComponentName cn = new android.content.ComponentName(QQ_PKG, QQ_SVC);
+        qqBrowser = new android.support.v4.media.MediaBrowserCompat(
+                this, cn,
+                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
+                    @Override public void onConnected() {
+                        qqConnected = true;
+                        qqConnecting = false;
+                        Log.i(TAG, "✅ 已连接 QQ 音乐 MediaBrowserService");
+
+                        try {
+                            MediaSessionCompat.Token token = qqBrowser.getSessionToken();
+                            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+                            remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
+                            remoteCtrl.registerCallback(remoteCb);
+
+                            // QQ 模式使用特殊的歌词处理，所以 isNcmMode = false
+                            isNcmMode = false;
+
+                            getSharedPreferences("session_pref", MODE_PRIVATE)
+                                    .edit()
+                                    .putString("last_pkg", QQ_PKG)
+                                    .putString("last_label", "QQ音乐")
+                                    .apply();
+
+                            // 🎯 MIRROR ONLY with Delay
+                            handler.postDelayed(() -> {
+                                mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+                                Log.i(TAG, "🎧 已通过 Direct Bridge 绑定 QQ 音乐控制器 [Delayed Mirror]");
+                            }, 500);
+                        } catch (Exception e) {
+                            Log.e(TAG, "❌ 绑定 QQ 音乐控制器失败", e);
+                        }
+                    }
+                    @Override public void onConnectionSuspended() {
+                        qqConnected = false;
+                        Log.w(TAG, "⚠️ QQ 音乐连接中断");
+                    }
+                    @Override public void onConnectionFailed() {
+                        qqConnected = false;
+                        qqConnecting = false;
+                        Log.e(TAG, "❌ QQ 音乐连接失败 (可能是应用未安装或不支持 MediaBrowser)");
+                    }
+                }, null);
+        qqBrowser.connect();
+    }
+
+    private void flushPendingError(String prefix) {
+        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e = it.next();
+            if (e.getKey().startsWith(prefix)) {
+                try { e.getValue().sendResult(java.util.Collections.emptyList()); } catch (Exception ignored) {}
+                it.remove();
+            }
+        }
     }
 
     /**
@@ -809,7 +963,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
      */
     private void subscribeAndDeliver(String lazyParentId,
                                      Result<List<MediaBrowserCompat.MediaItem>> result) {
-        result.detach();
+        // NOTE: result.detach() should have been called before calling this if async
         lazyBrowser.unsubscribe(lazyParentId); // clear any stale subscription first
         lazyBrowser.subscribe(lazyParentId,
                 new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
@@ -817,9 +971,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     public void onChildrenLoaded(String parentId,
                                                 List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
                         // Namespace every ID so we can distinguish Lazy Audio items
-                        List<MediaBrowserCompat.MediaItem> proxied = new ArrayList<>();
+                        java.util.List<MediaBrowserCompat.MediaItem> proxied = new java.util.ArrayList<>();
                         for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
-                            String namespacedId = LAZY_ROOT + ":" + item.getMediaId();
+                            String namespacedId = "LAZY_" + item.getMediaId();
                             android.support.v4.media.MediaDescriptionCompat desc =
                                     new android.support.v4.media.MediaDescriptionCompat.Builder()
                                             .setMediaId(namespacedId)
@@ -881,27 +1035,58 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
         if ("root".equals(parentId)) {
             List<MediaBrowserCompat.MediaItem> root = new ArrayList<>();
-            // Top-level: show a single "懒人听书" folder
-            android.support.v4.media.MediaDescriptionCompat desc =
-                    new android.support.v4.media.MediaDescriptionCompat.Builder()
-                            .setMediaId(LAZY_ROOT)
-                            .setTitle("懒人听书")
-                            .setSubtitle("点击浏览有声书")
-                            .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_audio))
-                            .build();
-            root.add(new MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
 
-            // Qishui Music folder
-            android.support.v4.media.MediaDescriptionCompat qishuiDesc =
-                    new android.support.v4.media.MediaDescriptionCompat.Builder()
-                            .setMediaId("QISHUI_ROOT")
-                            .setTitle("汽水音乐")
-                            .setSubtitle("发现好音乐")
-                            .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_music))
-                            .build();
-            root.add(new MediaBrowserCompat.MediaItem(qishuiDesc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
+            // 🎯 SINGLE FOLDER: "Command Center"
+            MediaDescriptionCompat cmdDesc = new MediaDescriptionCompat.Builder()
+                    .setMediaId("FOLDER_SWITCH")
+                    .setTitle("🔄 切换播放源")
+                    .setSubtitle("QQ / 懒人 / 汽水")
+                    .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_vec))
+                    .build();
+            root.add(new MediaBrowserCompat.MediaItem(cmdDesc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
 
             result.sendResult(root);
+            return;
+        }
+
+        // 🎯 CONTENT OF THE SWITCH FOLDER
+        if (parentId.equals("FOLDER_SWITCH")) {
+            List<MediaBrowserCompat.MediaItem> items = new ArrayList<>();
+
+            // 1. QQ
+            items.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
+                    .setMediaId("SWITCH_QQ")
+                    .setTitle("切换至: QQ音乐")
+                    .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qq_vec))
+                    .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
+
+            // 2. Lazy
+            items.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
+                    .setMediaId("SWITCH_LAZY")
+                    .setTitle("切换至: 懒人听书")
+                    .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_vec))
+                    .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
+
+            // 3. Qishui
+            items.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
+                    .setMediaId("SWITCH_QISHUI")
+                    .setTitle("切换至: 汽水音乐")
+                    .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_vec))
+                    .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
+
+            result.sendResult(items);
+            return;
+        }
+
+        // 🎯 HANDLE SWITCH COMMANDS FROM BROWSER
+        if (parentId.equals("SWITCH_QQ")) {
+            performManualSwitch("com.tencent.qqmusic", "QQ音乐");
+            List<MediaBrowserCompat.MediaItem> feedback = new ArrayList<>();
+            feedback.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
+                    .setMediaId("SWITCH_DONE")
+                    .setTitle("✅ 已切换至 QQ音乐")
+                    .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
+            result.sendResult(feedback);
             return;
         }
 
@@ -910,7 +1095,10 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             String lazyParentId;
             if (LAZY_ROOT.equals(parentId)) {
                 if (!lazyConnected || lazyBrowser == null) {
-                    pendingResults.put("LAZY_ROOT_PENDING", result);
+                    if (!pendingResults.containsValue(result)) {
+                        result.detach();
+                        pendingResults.put("LAZY_ROOT_PENDING", result);
+                    }
                     if (lazyBrowser == null || !lazyBrowser.isConnected()) connectLazyAudio();
                     return;
                 }
@@ -918,14 +1106,25 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             } else {
                 lazyParentId = parentId.substring(5);
             }
+            if (parentId.startsWith("LAZY_") || !pendingResults.containsValue(result)) {
+                try { result.detach(); } catch (Exception ignored) {}
+            }
             subscribeAndDeliver(lazyParentId, result);
         } else if (parentId.equals(QISHUI_ROOT) || parentId.startsWith("QISHUI_")) {
             if (!qishuiConnected || qishuiBrowser == null) {
-                pendingResults.put("QISHUI_ROOT_PENDING", result);
+                if (!pendingResults.containsValue(result)) {
+                    result.detach();
+                    pendingResults.put("QISHUI_ROOT_PENDING", result);
+                }
                 if (qishuiBrowser == null || !qishuiBrowser.isConnected()) connectQishuiMusic();
                 return;
             }
             String qishuiParentId = QISHUI_ROOT.equals(parentId) ? qishuiBrowser.getRoot() : parentId.substring(7);
+            // Ensure result is detached before async subscribe
+            // But check if it was already detached (when it was pending)
+            if (!pendingResults.containsValue(result)) {
+                try { result.detach(); } catch (Exception ignored) {}
+            }
             qishuiBrowser.subscribe(qishuiParentId, new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
                 @Override
                 public void onChildrenLoaded(@NonNull String pId, @NonNull java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
@@ -942,9 +1141,108 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     }
                     result.sendResult(proxied);
                 }
+                @Override public void onError(@NonNull String pId) {
+                    result.sendResult(java.util.Collections.emptyList());
+                }
             });
         } else {
-            result.sendResult(Collections.emptyList());
+            result.sendResult(java.util.Collections.emptyList());
+        }
+    }
+
+    private void performManualSwitch(String pkg, String label) {
+        Log.i(TAG, "🔄 [Universal Sync] Switching to: " + label + " (" + pkg + ")");
+        getSharedPreferences("session_pref", MODE_PRIVATE)
+                .edit()
+                .putString("last_pkg", pkg)
+                .putString("last_label", label)
+                .commit();
+
+        // 🎯 Signal the Sniffer and MainActivity
+        sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                .setPackage(getPackageName())
+                .putExtra("pkg", pkg)
+                .putExtra("label", label));
+
+        // 🚀 DEEP REFRESH: Force car screen to clear old info
+        Log.i(TAG, "🌪️ [DEEP REFRESH] Clearing car screen for: " + label);
+        mSession.setMetadata(new MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "正在切换至: " + label)
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "海风播放器 · 魔法桥接中...")
+                .build());
+        mSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                .setState(PlaybackStateCompat.STATE_BUFFERING, 0, 1.0f)
+                .build());
+        
+        updateSessionActive("manual_switch");
+
+        // If we already have a browser, FORCE a re-bind to sync metadata immediately
+        if (LAZY_PKG.equals(pkg) && lazyBrowser != null && lazyBrowser.isConnected()) {
+            bindControllerFromBrowser(lazyBrowser, pkg, label);
+        } else if (QISHUI_PKG.equals(pkg) && qishuiBrowser != null && qishuiBrowser.isConnected()) {
+            bindControllerFromBrowser(qishuiBrowser, pkg, label);
+        } else if (QQ_PKG.equals(pkg) && qqBrowser != null && qqBrowser.isConnected()) {
+            bindControllerFromBrowser(qqBrowser, pkg, label);
+        } else if (LAZY_PKG.equals(pkg)) {
+            connectLazyAudio();
+        } else if (QISHUI_PKG.equals(pkg)) {
+            // 🚀 UNIVERSAL WAKE-UP QISHUI
+            try {
+                // 1) Intent Wake-up
+                Intent wake = new Intent("android.media.browse.MediaBrowserService");
+                wake.setComponent(new android.content.ComponentName(QISHUI_PKG, "com.luna.biz.playing.player.PlayerService"));
+                startService(wake);
+                
+                // 2) Media Button Pulse
+                Intent mediaIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
+                mediaIntent.setPackage(QISHUI_PKG);
+                mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
+                sendBroadcast(mediaIntent);
+            } catch (Exception ignored) {}
+            
+            qishuiConnecting = false;
+            connectQishuiMusic();
+        } else if (QQ_PKG.equals(pkg)) {
+            // 🚀 UNIVERSAL WAKE-UP QQ
+            try {
+                // Media Button Pulse (Works for QQ even without service name)
+                Intent mediaIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
+                mediaIntent.setPackage(QQ_PKG);
+                mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
+                sendBroadcast(mediaIntent);
+            } catch (Exception ignored) {}
+            
+            qqConnecting = false;
+            connectQQMusic();
+        } else {
+            // Fallback for other apps
+            sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN").setPackage(getPackageName()));
+        }
+    }
+
+    private void bindControllerFromBrowser(MediaBrowserCompat browser, String pkg, String label) {
+        try {
+            MediaSessionCompat.Token token = browser.getSessionToken();
+            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+            remoteCtrl = new MediaControllerCompat(this, token);
+            remoteCtrl.registerCallback(remoteCb);
+
+            isNcmMode = true;
+            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+            
+            // 🚀 SYNC: Update car screen metadata
+            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+            Log.i(TAG, "✅ 已通过 Browser 绑定 " + label + " 控制器并同步状态 [Passive Switch]");
+            
+            // 📡 GLOBAL NOTIFY: Tell Sniffer and UI we switched
+            sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                    .setPackage(getPackageName())
+                    .putExtra("pkg", pkg)
+                    .putExtra("label", label));
+            sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN")
+                    .setPackage(getPackageName()));
+        } catch (Exception e) {
+            Log.e(TAG, "❌ 绑定 " + label + " 控制器失败", e);
         }
     }
 }

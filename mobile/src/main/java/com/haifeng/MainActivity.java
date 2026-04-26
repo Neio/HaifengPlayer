@@ -62,6 +62,7 @@ public class MainActivity extends AppCompatActivity {
     // ========================= 成员变量声明 =========================
     private TextView titleTv;                    // 歌名显示
     private MediaControllerCompat qqCtrl;        // QQ 音乐控制器
+    private android.support.v4.media.MediaBrowserCompat mBrowser; // 🎯 Internal Service Hotline
     private BroadcastReceiver tokenReceiver;     // 广播接收器：接收 QqSessionSniffer 发送的 Token
 
     private final Handler progressHandler = new Handler();  // 用于进度更新
@@ -159,8 +160,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        LocalBroadcastManager.getInstance(this)
-                .registerReceiver(selectionChangedRx, new IntentFilter(ACTION_SELECTION_CHANGED));
 
 
         // 设置布局
@@ -308,8 +307,19 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
-        IntentFilter filter = new IntentFilter(ACTION_CONTROLLER);
-        LocalBroadcastManager.getInstance(this).registerReceiver(tokenReceiver, filter);
+        // 🎯 统一注册广播 (Internal Only)
+        registerReceiver(tokenReceiver, new IntentFilter(ACTION_CONTROLLER), Context.RECEIVER_NOT_EXPORTED);
+        registerReceiver(selectionChangedRx, new IntentFilter(ACTION_SELECTION_CHANGED), Context.RECEIVER_NOT_EXPORTED);
+
+        // 🚀 ACTIVATE HOTLINE: Connect to our own service to keep it alive
+        mBrowser = new android.support.v4.media.MediaBrowserCompat(this,
+                new ComponentName(this, com.haifeng.shared.MyMusicService.class),
+                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
+                    @Override public void onConnected() {
+                        Log.i("MainActivity", "✅ Internal Service Hotline Connected!");
+                    }
+                }, null);
+        mBrowser.connect();
 
 
 
@@ -399,12 +409,17 @@ public class MainActivity extends AppCompatActivity {
         if (lazyBrowser != null && lazyBrowser.isConnected()) {
             lazyBrowser.disconnect();
         }
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(tokenReceiver);
+        if (mBrowser != null && mBrowser.isConnected()) {
+            mBrowser.disconnect();
+        }
+        
+        // 🛡️ Global Unregister
+        try {
+            unregisterReceiver(tokenReceiver);
+            unregisterReceiver(selectionChangedRx);
+        } catch (Exception ignored) {}
+        
         progressHandler.removeCallbacksAndMessages(null);  // 停止进度更新
-
-
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(selectionChangedRx);
-
         super.onDestroy();
     }
 
@@ -584,13 +599,13 @@ public class MainActivity extends AppCompatActivity {
                 .putString("last_label", label)
                 .apply();
 
-        LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                        .putExtra("pkg", pkg)
-                        .putExtra("label", label));
+        sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                .setPackage(getPackageName())
+                .putExtra("pkg", pkg)
+                .putExtra("label", label));
 
-        LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+        sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN")
+                .setPackage(getPackageName()));
 
         if (lazyBrowser != null && lazyBrowser.isConnected()) {
             lazyBrowser.disconnect();
@@ -633,6 +648,7 @@ public class MainActivity extends AppCompatActivity {
     private void testQQMusicProxy() {
         String pkg = "com.tencent.qqmusic";
         String label = "QQ音乐";
+        Log.i("MainActivity", "🔘 [QQ Switch] Tapped. Targeting: " + pkg);
 
         getSharedPreferences("session_pref", Context.MODE_PRIVATE)
                 .edit()
@@ -640,13 +656,13 @@ public class MainActivity extends AppCompatActivity {
                 .putString("last_label", label)
                 .apply();
 
-        LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                        .putExtra("pkg", pkg)
-                        .putExtra("label", label));
+        sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
+                .setPackage(getPackageName())
+                .putExtra("pkg", pkg)
+                .putExtra("label", label));
 
-        LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+        sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN")
+                .setPackage(getPackageName()));
 
         // For QQ, we don't need a browser proxy, just sniff the token
         if (lazyBrowser != null && lazyBrowser.isConnected()) {
