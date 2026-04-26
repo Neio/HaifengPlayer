@@ -6,11 +6,10 @@ Haifeng Player is a premium, minimalist music bridge for Android Auto, designed 
 
 ## ✨ Features
 
-- **Full Lazy Audio (懒人听书) Integration**: Browse your bookshelf and recent books directly from the Android Auto interface.
-- **Data Proxy Technology**: Seamlessly sync chapter progress and metadata between your phone and car.
-- **Smart Mirroring**: Supports QQ Music, NetEase Cloud Music, and more via high-fidelity session sniffer technology.
-- **Futuristic UI**: Modern, high-contrast design optimized for automotive safety and aesthetics.
-- **Custom Actions**: Toggle features like auto-lyrics or app switching directly from the steering wheel or head unit.
+- **Direct Integration**: Specialized bridges for **QQ Music (QQ音乐)**, **Lazy Audio (懒人听书)**, and **Qishui Music (汽水音乐)**.
+- **Smart Mirroring**: Supports a wide range of music apps via high-fidelity session sniffer technology.
+- **Synchronized Lyrics**: Advanced engine to display real-time lyrics on your car's dashboard (optimized for QQ Music).
+- **In-Car Switching**: Change music sources directly from the Android Auto menu or head unit buttons.
 
 ## 🚀 Getting Started
 
