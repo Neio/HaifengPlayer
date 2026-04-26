@@ -23,7 +23,7 @@ Haifeng Player is a premium, minimalist music bridge for Android Auto, designed 
 Haifeng Player utilizes a dual-path integration strategy to ensure maximum compatibility:
 
 - **Direct Bridge**: For apps like **Lazy Audio (懒人听书)** and **Qishui Music**, we connect directly to their `MediaBrowserService`. This allows full browsing of your library and bookshelves from the car screen.
-- **Session Sniffing**: For apps like **QQ Music** and **NetEase Cloud Music**, we use a `NotificationListenerService` to capture the active `MediaSession` token. This provides universal control even if the app doesn't officially support Android Auto browsing.
+- **Session Sniffing**: For apps like **QQ Music**, we use a `NotificationListenerService` to capture the active `MediaSession` token. This provides universal control even if the app doesn't officially support Android Auto browsing.
 - **QQ Mode**: A specialized engine that parses LRC lyrics from metadata and overlays them onto the car's title/artist fields for synchronized display.
 
 ## 🛠️ Build Requirements
