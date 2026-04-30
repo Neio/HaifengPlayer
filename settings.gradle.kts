@@ -19,7 +19,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "糯米播放器"
+rootProject.name = "海风播放器"
 include(":mobile")
 include(":automotive")
 include(":shared")

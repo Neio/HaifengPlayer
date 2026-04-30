@@ -24,9 +24,10 @@ To build this project from source, ensure you have:
 - **Android SDK**: API Level 33+ components.
 
 ```bash
-# Example build command
-export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-./gradlew assembleDebug
+# Example install command
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+export PATH=$JAVA_HOME/bin:$PATH
+./gradlew :mobile:installDebug
 ```
 
 ## ⚖️ License

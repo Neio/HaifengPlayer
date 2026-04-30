@@ -1,0 +1,20 @@
+# Antigravity Rules for Haifeng Player
+
+## Build and Install Instructions
+
+When asked to build or install the mobile application, use the following commands to ensure the correct Java 17 environment is used:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+export PATH=$JAVA_HOME/bin:$PATH
+./gradlew :mobile:installDebug
+```
+
+## Project Context
+- **Project Name**: Haifeng Player
+- **Primary Modules**: 
+  - `:mobile`: The main Android application.
+  - `:shared`: Shared logic and media service.
+  - `:automotive`: Native Android Automotive OS support.
+- **Java Version**: OpenJDK 17 is required.
+- **Gradle**: Uses Gradle Wrapper (`./gradlew`).

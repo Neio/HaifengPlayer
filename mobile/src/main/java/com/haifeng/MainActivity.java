@@ -23,8 +23,6 @@ import androidx.fragment.app.Fragment;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import android.os.SystemClock;
 
-
-
 import android.content.BroadcastReceiver;
 
 import android.os.Handler;
@@ -55,27 +53,25 @@ import android.net.Uri;
 import android.content.ActivityNotFoundException;
 import android.support.v4.media.MediaMetadataCompat;
 
-
-
 public class MainActivity extends AppCompatActivity {
 
     // ========================= 成员变量声明 =========================
-    private TextView titleTv;                    // 歌名显示
-    private MediaControllerCompat qqCtrl;        // QQ 音乐控制器
+    private TextView titleTv; // 歌名显示
+    private MediaControllerCompat qqCtrl; // QQ 音乐控制器
     private android.support.v4.media.MediaBrowserCompat mBrowser; // 🎯 Internal Service Hotline
-    private BroadcastReceiver tokenReceiver;     // 广播接收器：接收 QqSessionSniffer 发送的 Token
+    private BroadcastReceiver tokenReceiver; // 广播接收器：接收 QqSessionSniffer 发送的 Token
 
-    private final Handler progressHandler = new Handler();  // 用于进度更新
-    private Runnable progressRunnable;                      // 进度任务
+    private final Handler progressHandler = new Handler(); // 用于进度更新
+    private Runnable progressRunnable; // 进度任务
 
-    private Handler tickerHandler = new Handler();          // 播放进度模拟器
+    private Handler tickerHandler = new Handler(); // 播放进度模拟器
     private Runnable tickerRunnable;
-    private long currentPositionMs = 0;                     // 当前播放位置（ms）
+    private long currentPositionMs = 0; // 当前播放位置（ms）
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
     // 来源标识
-    private static final String SRC_QQ  = "QQ";
+    private static final String SRC_QQ = "QQ";
     private static final String SRC_NCM = "NCM";
 
     private String activeSource = SRC_QQ; // 当前捕获来源（默认 QQ）
@@ -84,9 +80,9 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String ACTION_SELECTION_CHANGED = "com.haifeng.ACTION_SELECTION_CHANGED";
 
-
     private BroadcastReceiver selectionChangedRx = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) {
+        @Override
+        public void onReceive(Context c, Intent i) {
 
             // ↓↓↓ 新增：会话变更时同步歌词开关
             SwitchCompat sw = findViewById(R.id.switch_lyrics_mode);
@@ -97,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
             boolean isQQ = "com.tencent.qqmusic".equals(pkg);
 
             suppressLyricsToggle = true;
-            sw.setChecked(autoLyrics && isQQ);  // 非QQ时自动回拨为关；回到QQ且autoLyrics=true时自动打开
+            sw.setChecked(autoLyrics && isQQ); // 非QQ时自动回拨为关；回到QQ且autoLyrics=true时自动打开
             suppressLyricsToggle = false;
         }
     };
@@ -139,10 +135,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
-
-
-
     // ========================= 生命周期入口 =========================
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -154,18 +146,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 promptForPostNotificationsPermission();
             }
         }
 
-
-
         // 设置布局
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
-
 
         // ✅ 在这里插入首次使用说明弹窗
         SharedPreferences sp1 = getSharedPreferences("settings", MODE_PRIVATE);
@@ -181,8 +169,8 @@ public class MainActivity extends AppCompatActivity {
                             + "4. 这时你能看到手机端播放器展示当前歌曲信息，表示已成功 🎶\n\n"
                             + "🚗 Android Auto：\n\n"
                             + "1. 在手机 Android Auto 中开启开发者模式，并允许未知来源应用\n\n"
-                            + "2. 例如使用 QQ 音乐：手机连接车机 Android Auto → 确保糯米播放器在后台运行 → 打开 QQ 音乐播放\n\n"
-                            + "3. 车机端糯米播放器会自动显示歌曲。如果显示“没有任何内容”，请在手机端点击暂停再播放等待1~2 秒")
+                            + "2. 例如使用 QQ 音乐：手机连接车机 Android Auto → 确保海风播放器在后台运行 → 打开 QQ 音乐播放\n\n"
+                            + "3. 车机端海风播放器会自动显示歌曲。如果显示“没有任何内容”，请在手机端点击暂停再播放等待1~2 秒")
                     .setPositiveButton("我知道了", (d, w) -> {
                         sp1.edit().putBoolean("guideShown", true).apply();
                         d.dismiss();
@@ -213,8 +201,6 @@ public class MainActivity extends AppCompatActivity {
                     .show(getSupportFragmentManager(), "session_picker");
         });
 
-
-
         // 沉浸式状态栏处理
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main),
                 (v, insets) -> {
@@ -242,7 +228,8 @@ public class MainActivity extends AppCompatActivity {
         switchLyrics.setChecked(autoLyrics && isQQSelected);
 
         switchLyrics.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (suppressLyricsToggle) return;
+            if (suppressLyricsToggle)
+                return;
 
             // 实时确认当前所选 App（避免用户刚切换了选择）
             SharedPreferences curSel = getSharedPreferences("session_pref", MODE_PRIVATE);
@@ -252,7 +239,7 @@ public class MainActivity extends AppCompatActivity {
             // 非 QQ 音乐：禁止开启歌词模式并回拨
             if (!isQQ && isChecked) {
                 suppressLyricsToggle = true;
-                switchLyrics.setChecked(false);   // 立刻回拨
+                switchLyrics.setChecked(false); // 立刻回拨
                 suppressLyricsToggle = false;
                 Toast.makeText(MainActivity.this, "当前选择的 App 不支持歌词模式（仅 QQ 音乐）", Toast.LENGTH_SHORT).show();
                 prefs.edit().putBoolean("autoLyrics", false).apply();
@@ -268,19 +255,18 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-
-
-
         // 5) 注册广播接收器：仅采纳“当前选中的 App”
         tokenReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context c, Intent i) {
                 // 只处理通用 Action
-                if (!ACTION_CONTROLLER.equals(i.getAction())) return;
+                if (!ACTION_CONTROLLER.equals(i.getAction()))
+                    return;
 
                 // 广播里携带的来源包名（由 Sniffer 填入）
                 String sourcePkg = i.getStringExtra("pkg");
-                if (sourcePkg == null) return;
+                if (sourcePkg == null)
+                    return;
 
                 // 读取当前用户选中的包名
                 SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
@@ -291,16 +277,19 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 MediaSessionCompat.Token tk = i.getParcelableExtra("binder");
-                if (tk == null) return;
+                if (tk == null)
+                    return;
 
-                if (qqCtrl != null) qqCtrl.unregisterCallback(cb);
+                if (qqCtrl != null)
+                    qqCtrl.unregisterCallback(cb);
                 try {
                     qqCtrl = new MediaControllerCompat(MainActivity.this, tk);
                     qqCtrl.registerCallback(cb, null);
                     MediaControllerCompat.setMediaController(MainActivity.this, qqCtrl);
 
                     MediaMetadataCompat meta = qqCtrl.getMetadata();
-                    if (meta != null) cb.onMetadataChanged(meta);
+                    if (meta != null)
+                        cb.onMetadataChanged(meta);
                 } catch (Exception e) {
                     Log.e("QqSniffer", "设置控制器失败", e);
                 }
@@ -315,19 +304,12 @@ public class MainActivity extends AppCompatActivity {
         mBrowser = new android.support.v4.media.MediaBrowserCompat(this,
                 new ComponentName(this, com.haifeng.shared.MyMusicService.class),
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
-                    @Override public void onConnected() {
+                    @Override
+                    public void onConnected() {
                         Log.i("MainActivity", "✅ Internal Service Hotline Connected!");
                     }
                 }, null);
         mBrowser.connect();
-
-
-
-
-
-
-
-
 
     }
 
@@ -364,7 +346,8 @@ public class MainActivity extends AppCompatActivity {
                         android.util.Log.i("LazyProxy", "✅ Connected to Lazy Audio!");
                         try {
                             // Reuse the same qqCtrl/cb pattern so the phone UI updates correctly
-                            if (qqCtrl != null) qqCtrl.unregisterCallback(cb);
+                            if (qqCtrl != null)
+                                qqCtrl.unregisterCallback(cb);
                             qqCtrl = new MediaControllerCompat(
                                     MainActivity.this, lazyBrowser.getSessionToken());
                             qqCtrl.registerCallback(cb, null);
@@ -372,7 +355,8 @@ public class MainActivity extends AppCompatActivity {
 
                             // Immediately refresh phone UI with current chapter info
                             MediaMetadataCompat meta = qqCtrl.getMetadata();
-                            if (meta != null) cb.onMetadataChanged(meta);
+                            if (meta != null)
+                                cb.onMetadataChanged(meta);
 
                             android.util.Log.i("LazyProxy", "🎧 Phone UI now shows Lazy Audio chapter");
                         } catch (Exception e) {
@@ -382,17 +366,23 @@ public class MainActivity extends AppCompatActivity {
                         // Log the content tree for debugging
                         String root = lazyBrowser.getRoot();
                         android.util.Log.i("LazyProxy", "Root ID: " + root);
-                        lazyBrowser.subscribe(root, new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
-                            @Override
-                            public void onChildrenLoaded(String parentId, java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
-                                android.util.Log.i("LazyProxy", "📂 Children of " + parentId + ": " + children.size());
-                                for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
-                                    android.util.Log.i("LazyProxy", "  - [" + (item.isBrowsable() ? "DIR" : "FILE") + "] " 
-                                        + item.getDescription().getTitle() + " (ID: " + item.getMediaId() + ")");
-                                }
-                            }
-                        });
+                        lazyBrowser.subscribe(root,
+                                new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
+                                    @Override
+                                    public void onChildrenLoaded(String parentId,
+                                            java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
+                                        android.util.Log.i("LazyProxy",
+                                                "📂 Children of " + parentId + ": " + children.size());
+                                        for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
+                                            android.util.Log.i("LazyProxy",
+                                                    "  - [" + (item.isBrowsable() ? "DIR" : "FILE") + "] "
+                                                            + item.getDescription().getTitle() + " (ID: "
+                                                            + item.getMediaId() + ")");
+                                        }
+                                    }
+                                });
                     }
+
                     @Override
                     public void onConnectionFailed() {
                         android.util.Log.e("LazyProxy", "❌ Connection Failed");
@@ -405,21 +395,23 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        if (qqCtrl != null) qqCtrl.unregisterCallback(cb);
+        if (qqCtrl != null)
+            qqCtrl.unregisterCallback(cb);
         if (lazyBrowser != null && lazyBrowser.isConnected()) {
             lazyBrowser.disconnect();
         }
         if (mBrowser != null && mBrowser.isConnected()) {
             mBrowser.disconnect();
         }
-        
+
         // 🛡️ Global Unregister
         try {
             unregisterReceiver(tokenReceiver);
             unregisterReceiver(selectionChangedRx);
-        } catch (Exception ignored) {}
-        
-        progressHandler.removeCallbacksAndMessages(null);  // 停止进度更新
+        } catch (Exception ignored) {
+        }
+
+        progressHandler.removeCallbacksAndMessages(null); // 停止进度更新
         super.onDestroy();
     }
 
@@ -429,13 +421,12 @@ public class MainActivity extends AppCompatActivity {
     private boolean isNlEnabled() {
         String enabled = Settings.Secure.getString(
                 getContentResolver(), "enabled_notification_listeners");
-        if (enabled == null) return false;
+        if (enabled == null)
+            return false;
         String flat = new ComponentName(getPackageName(),
                 MusicSessionSniffer.class.getName()).flattenToString();
         return enabled.contains(flat);
     }
-
-
 
     /** 弹窗提示用户开启通知监听权限 */
     private void promptForNlPermission() {
@@ -450,26 +441,24 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-
     /** 弹窗提示用户开启 Android 13+ 通知权限 */
     private void promptForPostNotificationsPermission() {
         new AlertDialog.Builder(this)
                 .setTitle("允许通知权限")
-                .setMessage("为了保证糯米播放器在后台正常运行，本应用需要在状态栏权限"
+                .setMessage("为了保证海风播放器在后台正常运行，本应用需要在状态栏权限"
                         + "🎵。\n\n"
                         + "在 Android 13 及以上系统，如果不允许通知权限，应用可能会被系统限制后台运行。")
                 .setPositiveButton("去允许", (d, w) -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         requestPermissions(
-                                new String[]{ Manifest.permission.POST_NOTIFICATIONS },
-                                1001  // 自定义请求码
+                                new String[] { Manifest.permission.POST_NOTIFICATIONS },
+                                1001 // 自定义请求码
                         );
                     }
                 })
                 .setNegativeButton("取消", null)
                 .show();
     }
-
 
     // ========================= 控制器回调 =========================
 
@@ -491,12 +480,14 @@ public class MainActivity extends AppCompatActivity {
 
                 // 封面位图优先：ALBUM_ART → DISPLAY_ICON → ART
                 Bitmap cover = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
-                if (cover == null) cover = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON);
-                if (cover == null) cover = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
+                if (cover == null)
+                    cover = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON);
+                if (cover == null)
+                    cover = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
 
                 if (cover != null) {
-                    AlbumCoverFragment frag2 = (AlbumCoverFragment)
-                            getSupportFragmentManager().findFragmentById(R.id.playerAlbumCoverFragment);
+                    AlbumCoverFragment frag2 = (AlbumCoverFragment) getSupportFragmentManager()
+                            .findFragmentById(R.id.playerAlbumCoverFragment);
                     if (frag2 != null) {
                         frag2.updateCover(cover);
                     } else {
@@ -506,22 +497,20 @@ public class MainActivity extends AppCompatActivity {
                     Log.w("QqSniffer", "未获取到封面图");
                 }
 
-
                 String artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST);
-                PlaybackControlsFragment frag1 = (PlaybackControlsFragment)
-                        getSupportFragmentManager().findFragmentById(R.id.playbackControlsFragment);
+                PlaybackControlsFragment frag1 = (PlaybackControlsFragment) getSupportFragmentManager()
+                        .findFragmentById(R.id.playbackControlsFragment);
                 if (frag1 != null) {
                     frag1.updateTitle(title);
                     frag1.updateArtist(artist);
                 }
 
                 long durationMs = meta.getLong(MediaMetadata.METADATA_KEY_DURATION);
-                PlaybackControlsFragment frag = (PlaybackControlsFragment)
-                        getSupportFragmentManager().findFragmentById(R.id.playbackControlsFragment);
+                PlaybackControlsFragment frag = (PlaybackControlsFragment) getSupportFragmentManager()
+                        .findFragmentById(R.id.playbackControlsFragment);
                 if (frag != null) {
                     frag.updateTotalTime(durationMs);
                 }
-
 
             }
             PlaybackStateCompat state = qqCtrl.getPlaybackState();
@@ -536,8 +525,8 @@ public class MainActivity extends AppCompatActivity {
             long position = state.getPosition();
             Log.i("QqSniffer", "State → " + state.getState() + " | position = " + position);
 
-            PlaybackControlsFragment frag = (PlaybackControlsFragment)
-                    getSupportFragmentManager().findFragmentById(R.id.playbackControlsFragment);
+            PlaybackControlsFragment frag = (PlaybackControlsFragment) getSupportFragmentManager()
+                    .findFragmentById(R.id.playbackControlsFragment);
             if (frag != null) {
                 frag.updateProgressTime(position);
                 frag.updatePlayPauseButton(state.getState());
@@ -557,22 +546,20 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
     }
 
-
-
     // ========================= 播放进度模拟器 =========================
 
     /** 启动进度模拟器：每秒将 position +1s */
     private void startProgressTicker(long startPos) {
         currentPositionMs = startPos;
-        stopProgressTicker();  // 防止重复任务
+        stopProgressTicker(); // 防止重复任务
 
         tickerRunnable = new Runnable() {
             @Override
             public void run() {
                 currentPositionMs += 1000;
 
-                PlaybackControlsFragment frag = (PlaybackControlsFragment)
-                        getSupportFragmentManager().findFragmentById(R.id.playbackControlsFragment);
+                PlaybackControlsFragment frag = (PlaybackControlsFragment) getSupportFragmentManager()
+                        .findFragmentById(R.id.playbackControlsFragment);
 
                 if (frag != null) {
                     frag.updateProgressTime(currentPositionMs);

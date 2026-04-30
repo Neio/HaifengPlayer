@@ -1,4 +1,5 @@
 package com.haifeng.shared;
+
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -36,8 +37,8 @@ import java.util.regex.Pattern;
 
 public class MyMusicService extends MediaBrowserServiceCompat {
 
-    private MediaSessionCompat mSession;                       // 本地 MediaSession
-    private MediaControllerCompat remoteCtrl;                  // 指向外部播放器的控制器（QQ 或 NCM）
+    private MediaSessionCompat mSession; // 本地 MediaSession
+    private MediaControllerCompat remoteCtrl; // 指向外部播放器的控制器（QQ 或 NCM）
     private final MediaControllerCompat.Callback remoteCb = new RemoteCallback(); // 监听状态变化
 
     private static final String CUSTOM_ACTION_SHOW_LYRICS = "ACTION_LYRICS";
@@ -83,7 +84,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private String lastLyricsRaw = null;
 
     // 新增：当前是否处于“网易云模式”
-    private boolean isNcmMode = false;  // false=QQ 模式；true=非QQ（任意播放器）模式
+    private boolean isNcmMode = false; // false=QQ 模式；true=非QQ（任意播放器）模式
 
     // 新增：防止重复激活
     private boolean sessionActivated = false;
@@ -104,29 +105,30 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private boolean qqConnecting = false;
 
     // Pending deferred results waiting for connections
-    private final java.util.concurrent.ConcurrentHashMap<String, Result<List<MediaBrowserCompat.MediaItem>>>
-            pendingResults = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, Result<List<MediaBrowserCompat.MediaItem>>> pendingResults = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * 🎯 START/UPDATE FOREGROUND: Mandatory for Android 14+ Custom Buttons
      */
     private void updateForegroundNotification() {
-        androidx.core.app.NotificationCompat.Builder builder = new androidx.core.app.NotificationCompat.Builder(this, CHANNEL_ID)
+        androidx.core.app.NotificationCompat.Builder builder = new androidx.core.app.NotificationCompat.Builder(this,
+                CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_lyrics_24dp)
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true);
 
         if (lastRemoteMeta != null) {
             builder.setContentTitle(lastRemoteMeta.getString(MediaMetadataCompat.METADATA_KEY_TITLE))
-                   .setContentText(lastRemoteMeta.getString(MediaMetadataCompat.METADATA_KEY_ARTIST));
+                    .setContentText(lastRemoteMeta.getString(MediaMetadataCompat.METADATA_KEY_ARTIST));
         } else {
-            builder.setContentTitle("糯米播放器")
-                   .setContentText("正在同步车机内容...");
+            builder.setContentTitle("海风播放器")
+                    .setContentText("正在同步车机内容...");
         }
 
         android.app.Notification notification = builder.build();
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            startForeground(NOTIF_ID, notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         } else {
             startForeground(NOTIF_ID, notification);
         }
@@ -137,7 +139,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             mSession.setActive(true);
             Log.i(TAG, "🟢 Session ACTIVATE [" + debugTag + "]");
         }
-        
+
         // ⚡ JOLT: Update extras to force Android Auto UI refresh
         Bundle extras = new Bundle();
         extras.putLong("haifeng.refresh_token", System.currentTimeMillis());
@@ -159,8 +161,6 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 .setActions(ACTIONS)
                 .build();
     }
-
-
 
     // 以“基准位置+基准时间+速度”推算当前 position（只在 QQ 歌词模式用）
     private long clockPosition() {
@@ -213,17 +213,18 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         }
     };
 
-
     // =========================================================
     // 🔁 外部播放器回调：将元数据 / 播放状态同步给本地 Session
     // =========================================================
     private class RemoteCallback extends MediaControllerCompat.Callback {
-        @Override public void onMetadataChanged(MediaMetadataCompat m) {
+        @Override
+        public void onMetadataChanged(MediaMetadataCompat m) {
             lastRemoteMeta = m; // 缓存给 QQ 歌词模式
             mirror(m, null);
         }
 
-        @Override public void onPlaybackStateChanged(PlaybackStateCompat state) {
+        @Override
+        public void onPlaybackStateChanged(PlaybackStateCompat state) {
             mirror(remoteCtrl == null ? null : remoteCtrl.getMetadata(), state);
         }
     };
@@ -254,17 +255,18 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
                 // 🚀 LYRIC-STABLE DEDUPLICATION:
                 // We compare against the "Real" Title/Artist, ignoring the overlaid lyrics.
-                String lastTrueTitle = mSession.getController().getMetadata() == null ? null : 
-                                      mSession.getController().getMetadata().getString("ucar.media.metadata.ORIGINAL_TITLE");
-                String lastTrueArtist = mSession.getController().getMetadata() == null ? null :
-                                       mSession.getController().getMetadata().getString("ucar.media.metadata.ORIGINAL_ARTIST");
-                
-                boolean realSongChanged = !java.util.Objects.equals(title, lastTrueTitle) || 
-                                          !java.util.Objects.equals(artist, lastTrueArtist);
+                String lastTrueTitle = mSession.getController().getMetadata() == null ? null
+                        : mSession.getController().getMetadata().getString("ucar.media.metadata.ORIGINAL_TITLE");
+                String lastTrueArtist = mSession.getController().getMetadata() == null ? null
+                        : mSession.getController().getMetadata().getString("ucar.media.metadata.ORIGINAL_ARTIST");
 
-                // We also check if the *rendered* metadata changed (to know if we should update the lyric text)
-                String lastRenderedTitle = mSession.getController().getMetadata() == null ? null :
-                                          mSession.getController().getMetadata().getString(MediaMetadataCompat.METADATA_KEY_TITLE);
+                boolean realSongChanged = !java.util.Objects.equals(title, lastTrueTitle) ||
+                        !java.util.Objects.equals(artist, lastTrueArtist);
+
+                // We also check if the *rendered* metadata changed (to know if we should update
+                // the lyric text)
+                String lastRenderedTitle = mSession.getController().getMetadata() == null ? null
+                        : mSession.getController().getMetadata().getString(MediaMetadataCompat.METADATA_KEY_TITLE);
                 boolean renderedChanged = !java.util.Objects.equals(title, lastRenderedTitle);
 
                 if (renderedChanged) {
@@ -282,17 +284,20 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     Bitmap art = null;
                     if (isNcmMode) {
                         art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
-                        if (art == null) art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON);
-                        if (art == null) art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
+                        if (art == null)
+                            art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON);
+                        if (art == null)
+                            art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
                     } else {
                         art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
                     }
-                    if (art != null) builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
+                    if (art != null)
+                        builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
 
                     mSession.setMetadata(builder.build());
                     updateForegroundNotification();
-                    
-                    // 🚀 CRITICAL: Only Jolt if the REAL song changed. 
+
+                    // 🚀 CRITICAL: Only Jolt if the REAL song changed.
                     // Lyric updates remain "Silent" to keep buttons stable.
                     if (realSongChanged) {
                         updateSessionActive("mirror_song_changed");
@@ -300,7 +305,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 }
             }
         } else {
-            // 🛡️ FALLBACK: If app provides no metadata, show the App Label to clear "Switching..."
+            // 🛡️ FALLBACK: If app provides no metadata, show the App Label to clear
+            // "Switching..."
             SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
             String label = sp.getString("last_label", "海风播放器");
             mSession.setMetadata(new MediaMetadataCompat.Builder()
@@ -326,19 +332,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             }
 
             PlaybackStateCompat.Builder builder = new PlaybackStateCompat.Builder()
-                    .setState(code, clockPosition(), (baseSpeed == 0f ? 1.0f : baseSpeed), SystemClock.elapsedRealtime())
+                    .setState(code, clockPosition(), (baseSpeed == 0f ? 1.0f : baseSpeed),
+                            SystemClock.elapsedRealtime())
                     .setActions(
                             PlaybackStateCompat.ACTION_PLAY |
-                            PlaybackStateCompat.ACTION_PAUSE |
-                            PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-                            PlaybackStateCompat.ACTION_SEEK_TO |
-                            PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                            PlaybackStateCompat.ACTION_PREPARE |
-                            PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
-                            PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
-                            PlaybackStateCompat.ACTION_SET_RATING
-                    );
+                                    PlaybackStateCompat.ACTION_PAUSE |
+                                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
+                                    PlaybackStateCompat.ACTION_SEEK_TO |
+                                    PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                    PlaybackStateCompat.ACTION_PREPARE |
+                                    PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+                                    PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
+                                    PlaybackStateCompat.ACTION_SET_RATING);
 
             // 🎤 Custom Actions (Lyrics & Repeat) - 🚀 STABLE BUTTONS
             if (!isNcmMode) {
@@ -346,12 +352,15 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 int repeatIconRes = R.drawable.ic_repeat_24dp;
                 if (meta != null) {
                     long playMode = meta.getLong("ucar.media.metadata.PLAY_MODE");
-                    if (playMode == 1) repeatIconRes = R.drawable.ic_repeat_one_24dp;
-                    else if (playMode == 0) repeatIconRes = R.drawable.ic_shuffle_24dp;
+                    if (playMode == 1)
+                        repeatIconRes = R.drawable.ic_repeat_one_24dp;
+                    else if (playMode == 0)
+                        repeatIconRes = R.drawable.ic_shuffle_24dp;
                 }
 
-                // Optimization: Custom actions cause UI redraws. 
-                // Only re-add them if they actually changed or if this is the initial metadata mirror.
+                // Optimization: Custom actions cause UI redraws.
+                // Only re-add them if they actually changed or if this is the initial metadata
+                // mirror.
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
                         CUSTOM_ACTION_SHOW_LYRICS, "歌词", lyricsIconRes).build());
                 builder.addCustomAction(new PlaybackStateCompat.CustomAction.Builder(
@@ -360,28 +369,28 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
             /* 🧹 Switch buttons removed - handled by Browser menu now */
             mSession.setPlaybackState(builder.build());
-            
+
             // 💓 PROGRESS HEARTBEAT: Force a refresh every 1s if playing
             handler.removeCallbacks(progressHeartbeat);
             if (code == PlaybackStateCompat.STATE_PLAYING) {
                 handler.postDelayed(progressHeartbeat, 1000);
             }
         } else {
-            // 🛡️ FALLBACK: If app provides no state, force PAUSED to clear BUFFERING animation in AA
+            // 🛡️ FALLBACK: If app provides no state, force PAUSED to clear BUFFERING
+            // animation in AA
             PlaybackStateCompat.Builder builder = new PlaybackStateCompat.Builder()
                     .setState(PlaybackStateCompat.STATE_PAUSED, 0, 1.0f)
                     .setActions(
                             PlaybackStateCompat.ACTION_PLAY |
-                            PlaybackStateCompat.ACTION_PAUSE |
-                            PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
-                            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
-                            PlaybackStateCompat.ACTION_SEEK_TO |
-                            PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                            PlaybackStateCompat.ACTION_PREPARE |
-                            PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
-                            PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
-                            PlaybackStateCompat.ACTION_SET_RATING
-                    );
+                                    PlaybackStateCompat.ACTION_PAUSE |
+                                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT |
+                                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS |
+                                    PlaybackStateCompat.ACTION_SEEK_TO |
+                                    PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                    PlaybackStateCompat.ACTION_PREPARE |
+                                    PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
+                                    PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
+                                    PlaybackStateCompat.ACTION_SET_RATING);
             mSession.setPlaybackState(builder.build());
             Log.i(TAG, "ℹ️ Mirror: 远端无播放状态，强制 PAUSED 以清除 Buffer");
         }
@@ -389,12 +398,14 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
     // 仅在“QQ 歌词模式”调用：把当前/下一句覆盖到元数据
     private void applyLyricsOverlay(MediaMetadataCompat meta) {
-        if (isNcmMode || !isLyricsMode || meta == null) return;
+        if (isNcmMode || !isLyricsMode || meta == null)
+            return;
 
         long playMode = meta.getLong("ucar.media.metadata.PLAY_MODE");
         lastPlayMode = (int) playMode;
         long dur = meta.getLong(MediaMetadataCompat.METADATA_KEY_DURATION);
-        if (dur > 0) durationMs = dur;
+        if (dur > 0)
+            durationMs = dur;
 
         String lyricsWhole = meta.getString("ucar.media.metadata.LYRICS_WHOLE");
         if (lyricsWhole != null && !lyricsWhole.equals(lastLyricsRaw)) {
@@ -408,11 +419,16 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             int lo = 0, hi = parsedLyrics.size() - 1, ans = -1;
             while (lo <= hi) {
                 int mid = (lo + hi) >>> 1;
-                if (parsedLyrics.get(mid).first <= t) { ans = mid; lo = mid + 1; }
-                else hi = mid - 1;
+                if (parsedLyrics.get(mid).first <= t) {
+                    ans = mid;
+                    lo = mid + 1;
+                } else
+                    hi = mid - 1;
             }
-            if (ans >= 0) current = parsedLyrics.get(ans).second;
-            if (ans + 1 < parsedLyrics.size()) next = parsedLyrics.get(ans + 1).second;
+            if (ans >= 0)
+                current = parsedLyrics.get(ans).second;
+            if (ans + 1 < parsedLyrics.size())
+                next = parsedLyrics.get(ans + 1).second;
         }
 
         MediaMetadataCompat.Builder b = new MediaMetadataCompat.Builder();
@@ -420,13 +436,16 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         b.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, next);
 
         Bitmap art = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART);
-        if (art != null) b.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
-        if (durationMs > 0) b.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
+        if (art != null)
+            b.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
+        if (durationMs > 0)
+            b.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
 
         mSession.setMetadata(b.build());
 
         int code = (baseState == PlaybackStateCompat.STATE_NONE || baseState == PlaybackStateCompat.STATE_STOPPED)
-                ? PlaybackStateCompat.STATE_PAUSED : baseState;
+                ? PlaybackStateCompat.STATE_PAUSED
+                : baseState;
 
         PlaybackStateCompat.Builder ps = new PlaybackStateCompat.Builder()
                 .setState(code, clockPosition(), (baseSpeed == 0f ? 1.0f : baseSpeed))
@@ -442,8 +461,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                                 PlaybackStateCompat.ACTION_PREPARE |
                                 PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID |
                                 PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH |
-                                PlaybackStateCompat.ACTION_SET_RATING
-                );
+                                PlaybackStateCompat.ACTION_SET_RATING);
 
         /* 🧹 Switch buttons removed - handled by Browser menu now */
         mSession.setPlaybackState(ps.build());
@@ -453,9 +471,11 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // 📡 接收 QQ / NCM 的 Token 并构建 Controller（切源）
     // =========================================================
     private final BroadcastReceiver tokenRx = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) {
+        @Override
+        public void onReceive(Context c, Intent i) {
             Log.i("Mirror", "🎯 [tokenRx] Received Broadcast: " + i.getAction());
-            if (!ACTION_CONTROLLER.equals(i.getAction())) return;
+            if (!ACTION_CONTROLLER.equals(i.getAction()))
+                return;
 
             // 1) 广播来源的包名（Sniffer 填入）
             String sourcePkg = i.getStringExtra("pkg");
@@ -500,7 +520,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             }
 
             // 🚀 TOKEN STABILITY: Only jolt if the session identity actually changed.
-            // If it's the same token, don't trigger updateSessionActive to prevent AA flicker.
+            // If it's the same token, don't trigger updateSessionActive to prevent AA
+            // flicker.
             boolean isNewToken = (remoteCtrl == null || !remoteCtrl.getSessionToken().equals(tk));
             if (isNewToken) {
                 updateSessionActive("sourceChanged:" + sourcePkg);
@@ -519,18 +540,17 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 }
                 remoteCtrl = new MediaControllerCompat(MyMusicService.this, tk);
                 remoteCtrl.registerCallback(remoteCb);
-                
+
                 // 5) 同步一次
                 mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
                 Log.i("Mirror", "✅ 绑定远端控制器 [Sniffer Path], pkg=" + sourcePkg);
-                
+
                 updateSessionActive("snifferUpdate");
             } catch (Exception e) {
                 Log.e("Mirror", "❌ 绑定远端控制器失败 [Sniffer Path]", e);
             }
         }
     };
-
 
     private void parseLyrics(String rawLyrics) {
         parsedLyrics.clear();
@@ -562,19 +582,24 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             android.app.NotificationChannel channel = new android.app.NotificationChannel(
                     CHANNEL_ID, "海风播放器 · 车机同步",
                     android.app.NotificationManager.IMPORTANCE_LOW);
-            android.app.NotificationManager manager = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (manager != null) manager.createNotificationChannel(channel);
+            android.app.NotificationManager manager = (android.app.NotificationManager) getSystemService(
+                    NOTIFICATION_SERVICE);
+            if (manager != null)
+                manager.createNotificationChannel(channel);
         }
 
         mSession = new MediaSessionCompat(this, "MirrorSession");
-        
+
         // 🎯 LINK THE RECEIVER
         Intent mbrIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
-        mbrIntent.setComponent(new android.content.ComponentName(this, androidx.media.session.MediaButtonReceiver.class));
-        android.app.PendingIntent mbrPendingIntent = android.app.PendingIntent.getBroadcast(this, 0, mbrIntent, android.app.PendingIntent.FLAG_IMMUTABLE);
+        mbrIntent.setComponent(
+                new android.content.ComponentName(this, androidx.media.session.MediaButtonReceiver.class));
+        android.app.PendingIntent mbrPendingIntent = android.app.PendingIntent.getBroadcast(this, 0, mbrIntent,
+                android.app.PendingIntent.FLAG_IMMUTABLE);
         mSession.setMediaButtonReceiver(mbrPendingIntent);
 
-        mSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        mSession.setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         setSessionToken(mSession.getSessionToken());
 
         // 🎯 START FOREGROUND: This is the "Key" to unlock buttons on Android 14+
@@ -590,46 +615,54 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
                 KeyEvent keyEvent = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                 if (keyEvent != null) {
-                    Log.i(TAG, "⌨️ RAW KEY DETECTED: " + keyEvent.getKeyCode() + " (Action: " + keyEvent.getAction() + ")");
+                    Log.i(TAG, "⌨️ RAW KEY DETECTED: " + keyEvent.getKeyCode() + " (Action: " + keyEvent.getAction()
+                            + ")");
                 }
                 return super.onMediaButtonEvent(mediaButtonEvent);
             }
 
-            @Override public void onPlay() {
+            @Override
+            public void onPlay() {
                 Log.i(TAG, "💓 HEARTBEAT: Play Clicked");
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().play();
             }
 
-            @Override public void onPause() {
+            @Override
+            public void onPause() {
                 Log.i(TAG, "💓 HEARTBEAT: Pause Clicked");
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().pause();
             }
 
-            @Override public void onSkipToNext() {
+            @Override
+            public void onSkipToNext() {
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().skipToNext();
             }
 
-            @Override public void onSkipToPrevious() {
+            @Override
+            public void onSkipToPrevious() {
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().skipToPrevious();
             }
 
-            @Override public void onFastForward() {
+            @Override
+            public void onFastForward() {
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().fastForward();
             }
 
-            @Override public void onRewind() {
+            @Override
+            public void onRewind() {
                 if (remoteCtrl != null)
                     remoteCtrl.getTransportControls().rewind();
             }
 
-            @Override public void onPlayFromMediaId(String mediaId, Bundle extras) {
+            @Override
+            public void onPlayFromMediaId(String mediaId, Bundle extras) {
                 Log.i(TAG, "🎯 onPlayFromMediaId: " + mediaId);
-                
+
                 // 🚀 EXPLICIT SWITCHING
                 if ("SWITCH_QQ".equals(mediaId)) {
                     performManualSwitch("com.tencent.qqmusic", "QQ音乐");
@@ -654,7 +687,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 }
             }
 
-            @Override public void onSeekTo(long positionMs) {
+            @Override
+            public void onSeekTo(long positionMs) {
                 if (remoteCtrl != null) {
                     remoteCtrl.getTransportControls().seekTo(positionMs);
                 }
@@ -673,8 +707,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
                     applyLyricsOverlay(lastRemoteMeta);
                 } else {
-                    PlaybackStateCompat remoteState =
-                            (remoteCtrl != null) ? remoteCtrl.getPlaybackState() : null;
+                    PlaybackStateCompat remoteState = (remoteCtrl != null) ? remoteCtrl.getPlaybackState() : null;
 
                     if (remoteState != null) {
                         mSession.setPlaybackState(remoteState);
@@ -687,7 +720,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             public void onCustomAction(String action, Bundle extras) {
                 // 🕵️‍♂️ THE "TRUTH" LOG: If the car sends ANYTHING, we see it here first
                 Log.i(TAG, "🎯>>> RECEIVED CUSTOM ACTION: [" + action + "]");
-                
+
                 if (CUSTOM_ACTION_SHOW_LYRICS.equals(action)) {
                     isLyricsMode = !isLyricsMode;
 
@@ -735,11 +768,11 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         registerReceiver(tokenRx, new IntentFilter(ACTION_CONTROLLER), Context.RECEIVER_NOT_EXPORTED);
 
         // 注册“自动歌词模式”广播 (Internal)
-        registerReceiver(autoLyricsReceiver, new IntentFilter(ACTION_TOGGLE_LYRICS_MODE), Context.RECEIVER_NOT_EXPORTED);
+        registerReceiver(autoLyricsReceiver, new IntentFilter(ACTION_TOGGLE_LYRICS_MODE),
+                Context.RECEIVER_NOT_EXPORTED);
 
         // 连接懒人听书 MediaBrowserService（Data Proxy）
         connectLazyAudio();
-
 
         // 自动歌词模式：仅在 QQ 模式下可自动开启（NCM 模式忽略）
         SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
@@ -768,7 +801,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // 懒人听书 Data Proxy 连接管理
     // =========================================================
     private void connectLazyAudio() {
-        if (lazyConnecting || (lazyBrowser != null && lazyBrowser.isConnected())) return;
+        if (lazyConnecting || (lazyBrowser != null && lazyBrowser.isConnected()))
+            return;
         lazyConnecting = true;
         Log.i(TAG, "🔌 正在连接懒人听书...");
 
@@ -776,7 +810,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         lazyBrowser = new android.support.v4.media.MediaBrowserCompat(
                 this, cn,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
-                    @Override public void onConnected() {
+                    @Override
+                    public void onConnected() {
                         lazyConnected = true;
                         lazyConnecting = false;
                         Log.i(TAG, "✅ 已连接懒人听书 MediaBrowserService，root=" + lazyBrowser.getRoot());
@@ -786,7 +821,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         // without waiting for the Sniffer notification.
                         try {
                             MediaSessionCompat.Token token = lazyBrowser.getSessionToken();
-                            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+                            if (remoteCtrl != null)
+                                remoteCtrl.unregisterCallback(remoteCb);
                             remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
                             remoteCtrl.registerCallback(remoteCb);
 
@@ -810,22 +846,28 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         }
 
                         // Flush any pending results that arrived before the connection was ready
-                        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults.entrySet().iterator();
+                        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults
+                                .entrySet().iterator();
                         while (it.hasNext()) {
                             java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e = it.next();
                             if (e.getKey().startsWith("LAZY_")) {
-                                onLoadChildren(e.getKey().equals("LAZY_ROOT_PENDING") ? LAZY_ROOT : e.getKey(), e.getValue());
+                                onLoadChildren(e.getKey().equals("LAZY_ROOT_PENDING") ? LAZY_ROOT : e.getKey(),
+                                        e.getValue());
                                 it.remove();
                             }
                         }
                     }
-                    @Override public void onConnectionFailed() {
+
+                    @Override
+                    public void onConnectionFailed() {
                         lazyConnected = false;
                         lazyConnecting = false;
                         Log.e(TAG, "❌ 连接懒人听书失败");
                         flushPendingError("LAZY_");
                     }
-                    @Override public void onConnectionSuspended() {
+
+                    @Override
+                    public void onConnectionSuspended() {
                         lazyConnected = false;
                         lazyConnecting = false;
                         Log.w(TAG, "⚠️ 懒人听书连接已挂起");
@@ -835,7 +877,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     }
 
     private void connectQishuiMusic() {
-        if (qishuiConnecting || (qishuiBrowser != null && qishuiBrowser.isConnected())) return;
+        if (qishuiConnecting || (qishuiBrowser != null && qishuiBrowser.isConnected()))
+            return;
         qishuiConnecting = true;
         Log.i(TAG, "🔌 正在连接汽水音乐...");
 
@@ -843,14 +886,16 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         qishuiBrowser = new android.support.v4.media.MediaBrowserCompat(
                 this, cn,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
-                    @Override public void onConnected() {
+                    @Override
+                    public void onConnected() {
                         qishuiConnected = true;
                         qishuiConnecting = false;
                         Log.i(TAG, "✅ 已连接汽水音乐 MediaBrowserService，root=" + qishuiBrowser.getRoot());
 
                         try {
                             MediaSessionCompat.Token token = qishuiBrowser.getSessionToken();
-                            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+                            if (remoteCtrl != null)
+                                remoteCtrl.unregisterCallback(remoteCb);
                             remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
                             remoteCtrl.registerCallback(remoteCb);
 
@@ -872,22 +917,28 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         }
 
                         // Flush pending results for Qishui
-                        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults.entrySet().iterator();
+                        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults
+                                .entrySet().iterator();
                         while (it.hasNext()) {
                             java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e = it.next();
                             if (e.getKey().startsWith("QISHUI_")) {
-                                onLoadChildren(e.getKey().equals("QISHUI_ROOT_PENDING") ? QISHUI_ROOT : e.getKey(), e.getValue());
+                                onLoadChildren(e.getKey().equals("QISHUI_ROOT_PENDING") ? QISHUI_ROOT : e.getKey(),
+                                        e.getValue());
                                 it.remove();
                             }
                         }
                     }
-                    @Override public void onConnectionFailed() {
+
+                    @Override
+                    public void onConnectionFailed() {
                         qishuiConnected = false;
                         qishuiConnecting = false;
                         Log.e(TAG, "❌ 连接汽水音乐失败");
                         flushPendingError("QISHUI_");
                     }
-                    @Override public void onConnectionSuspended() {
+
+                    @Override
+                    public void onConnectionSuspended() {
                         qishuiConnected = false;
                         qishuiConnecting = false;
                     }
@@ -896,7 +947,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     }
 
     private void connectQQMusic() {
-        if (qqConnecting || (qqBrowser != null && qqBrowser.isConnected())) return;
+        if (qqConnecting || (qqBrowser != null && qqBrowser.isConnected()))
+            return;
         qqConnecting = true;
         Log.i(TAG, "🔌 正在通过 Direct Bridge 连接 QQ 音乐...");
 
@@ -904,14 +956,16 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         qqBrowser = new android.support.v4.media.MediaBrowserCompat(
                 this, cn,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
-                    @Override public void onConnected() {
+                    @Override
+                    public void onConnected() {
                         qqConnected = true;
                         qqConnecting = false;
                         Log.i(TAG, "✅ 已连接 QQ 音乐 MediaBrowserService");
 
                         try {
                             MediaSessionCompat.Token token = qqBrowser.getSessionToken();
-                            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+                            if (remoteCtrl != null)
+                                remoteCtrl.unregisterCallback(remoteCb);
                             remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
                             remoteCtrl.registerCallback(remoteCb);
 
@@ -933,11 +987,15 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                             Log.e(TAG, "❌ 绑定 QQ 音乐控制器失败", e);
                         }
                     }
-                    @Override public void onConnectionSuspended() {
+
+                    @Override
+                    public void onConnectionSuspended() {
                         qqConnected = false;
                         Log.w(TAG, "⚠️ QQ 音乐连接中断");
                     }
-                    @Override public void onConnectionFailed() {
+
+                    @Override
+                    public void onConnectionFailed() {
                         qqConnected = false;
                         qqConnecting = false;
                         Log.e(TAG, "❌ QQ 音乐连接失败 (可能是应用未安装或不支持 MediaBrowser)");
@@ -947,11 +1005,15 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     }
 
     private void flushPendingError(String prefix) {
-        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults.entrySet().iterator();
+        java.util.Iterator<java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>>> it = pendingResults
+                .entrySet().iterator();
         while (it.hasNext()) {
             java.util.Map.Entry<String, Result<List<MediaBrowserCompat.MediaItem>>> e = it.next();
             if (e.getKey().startsWith(prefix)) {
-                try { e.getValue().sendResult(java.util.Collections.emptyList()); } catch (Exception ignored) {}
+                try {
+                    e.getValue().sendResult(java.util.Collections.emptyList());
+                } catch (Exception ignored) {
+                }
                 it.remove();
             }
         }
@@ -962,26 +1024,25 @@ public class MyMusicService extends MediaBrowserServiceCompat {
      * the Android Auto result object.
      */
     private void subscribeAndDeliver(String lazyParentId,
-                                     Result<List<MediaBrowserCompat.MediaItem>> result) {
+            Result<List<MediaBrowserCompat.MediaItem>> result) {
         // NOTE: result.detach() should have been called before calling this if async
         lazyBrowser.unsubscribe(lazyParentId); // clear any stale subscription first
         lazyBrowser.subscribe(lazyParentId,
                 new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
                     @Override
                     public void onChildrenLoaded(String parentId,
-                                                List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
+                            List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
                         // Namespace every ID so we can distinguish Lazy Audio items
                         java.util.List<MediaBrowserCompat.MediaItem> proxied = new java.util.ArrayList<>();
                         for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
                             String namespacedId = "LAZY_" + item.getMediaId();
-                            android.support.v4.media.MediaDescriptionCompat desc =
-                                    new android.support.v4.media.MediaDescriptionCompat.Builder()
-                                            .setMediaId(namespacedId)
-                                            .setTitle(item.getDescription().getTitle())
-                                            .setSubtitle(item.getDescription().getSubtitle())
-                                            .setIconUri(item.getDescription().getIconUri())
-                                            .setIconBitmap(item.getDescription().getIconBitmap())
-                                            .build();
+                            android.support.v4.media.MediaDescriptionCompat desc = new android.support.v4.media.MediaDescriptionCompat.Builder()
+                                    .setMediaId(namespacedId)
+                                    .setTitle(item.getDescription().getTitle())
+                                    .setSubtitle(item.getDescription().getSubtitle())
+                                    .setIconUri(item.getDescription().getIconUri())
+                                    .setIconBitmap(item.getDescription().getIconBitmap())
+                                    .build();
                             int flags = item.isBrowsable()
                                     ? MediaBrowserCompat.MediaItem.FLAG_BROWSABLE
                                     : MediaBrowserCompat.MediaItem.FLAG_PLAYABLE;
@@ -992,6 +1053,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         result.sendResult(proxied);
                         lazyBrowser.unsubscribe(parentId);
                     }
+
                     @Override
                     public void onError(String parentId) {
                         Log.e(TAG, "❌ 懒人听书订阅失败 parentId=" + parentId);
@@ -1031,14 +1093,14 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // =========================================================
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName,
-                                 int clientUid,
-                                 Bundle rootHints) {
+            int clientUid,
+            Bundle rootHints) {
         return new BrowserRoot("root", null);
     }
 
     @Override
     public void onLoadChildren(@NonNull String parentId,
-                               @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
+            @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
         if ("root".equals(parentId)) {
             List<MediaBrowserCompat.MediaItem> root = new ArrayList<>();
 
@@ -1105,7 +1167,8 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         result.detach();
                         pendingResults.put("LAZY_ROOT_PENDING", result);
                     }
-                    if (lazyBrowser == null || !lazyBrowser.isConnected()) connectLazyAudio();
+                    if (lazyBrowser == null || !lazyBrowser.isConnected())
+                        connectLazyAudio();
                     return;
                 }
                 lazyParentId = lazyBrowser.getRoot();
@@ -1113,7 +1176,10 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 lazyParentId = parentId.substring(5);
             }
             if (parentId.startsWith("LAZY_") || !pendingResults.containsValue(result)) {
-                try { result.detach(); } catch (Exception ignored) {}
+                try {
+                    result.detach();
+                } catch (Exception ignored) {
+                }
             }
             subscribeAndDeliver(lazyParentId, result);
         } else if (parentId.equals(QISHUI_ROOT) || parentId.startsWith("QISHUI_")) {
@@ -1122,35 +1188,44 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     result.detach();
                     pendingResults.put("QISHUI_ROOT_PENDING", result);
                 }
-                if (qishuiBrowser == null || !qishuiBrowser.isConnected()) connectQishuiMusic();
+                if (qishuiBrowser == null || !qishuiBrowser.isConnected())
+                    connectQishuiMusic();
                 return;
             }
             String qishuiParentId = QISHUI_ROOT.equals(parentId) ? qishuiBrowser.getRoot() : parentId.substring(7);
             // Ensure result is detached before async subscribe
             // But check if it was already detached (when it was pending)
             if (!pendingResults.containsValue(result)) {
-                try { result.detach(); } catch (Exception ignored) {}
+                try {
+                    result.detach();
+                } catch (Exception ignored) {
+                }
             }
-            qishuiBrowser.subscribe(qishuiParentId, new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
-                @Override
-                public void onChildrenLoaded(@NonNull String pId, @NonNull java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
-                    java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> proxied = new java.util.ArrayList<>();
-                    for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
-                        android.support.v4.media.MediaDescriptionCompat d = item.getDescription();
-                        android.support.v4.media.MediaDescriptionCompat newD = new android.support.v4.media.MediaDescriptionCompat.Builder()
-                                .setMediaId("QISHUI_" + d.getMediaId())
-                                .setTitle(d.getTitle())
-                                .setSubtitle(d.getSubtitle())
-                                .setIconUri(d.getIconUri())
-                                .build();
-                        proxied.add(new android.support.v4.media.MediaBrowserCompat.MediaItem(newD, item.getFlags()));
-                    }
-                    result.sendResult(proxied);
-                }
-                @Override public void onError(@NonNull String pId) {
-                    result.sendResult(java.util.Collections.emptyList());
-                }
-            });
+            qishuiBrowser.subscribe(qishuiParentId,
+                    new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
+                        @Override
+                        public void onChildrenLoaded(@NonNull String pId,
+                                @NonNull java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
+                            java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> proxied = new java.util.ArrayList<>();
+                            for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
+                                android.support.v4.media.MediaDescriptionCompat d = item.getDescription();
+                                android.support.v4.media.MediaDescriptionCompat newD = new android.support.v4.media.MediaDescriptionCompat.Builder()
+                                        .setMediaId("QISHUI_" + d.getMediaId())
+                                        .setTitle(d.getTitle())
+                                        .setSubtitle(d.getSubtitle())
+                                        .setIconUri(d.getIconUri())
+                                        .build();
+                                proxied.add(new android.support.v4.media.MediaBrowserCompat.MediaItem(newD,
+                                        item.getFlags()));
+                            }
+                            result.sendResult(proxied);
+                        }
+
+                        @Override
+                        public void onError(@NonNull String pId) {
+                            result.sendResult(java.util.Collections.emptyList());
+                        }
+                    });
         } else {
             result.sendResult(java.util.Collections.emptyList());
         }
@@ -1179,7 +1254,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         mSession.setPlaybackState(new PlaybackStateCompat.Builder()
                 .setState(PlaybackStateCompat.STATE_BUFFERING, 0, 1.0f)
                 .build());
-        
+
         updateSessionActive("manual_switch");
 
         // If we already have a browser, FORCE a re-bind to sync metadata immediately
@@ -1196,16 +1271,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             try {
                 // 1) Intent Wake-up
                 Intent wake = new Intent("android.media.browse.MediaBrowserService");
-                wake.setComponent(new android.content.ComponentName(QISHUI_PKG, "com.luna.biz.playing.player.PlayerService"));
+                wake.setComponent(
+                        new android.content.ComponentName(QISHUI_PKG, "com.luna.biz.playing.player.PlayerService"));
                 startService(wake);
-                
+
                 // 2) Media Button Pulse
                 Intent mediaIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
                 mediaIntent.setPackage(QISHUI_PKG);
-                mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
+                mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(
+                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
                 sendBroadcast(mediaIntent);
-            } catch (Exception ignored) {}
-            
+            } catch (Exception ignored) {
+            }
+
             qishuiConnecting = false;
             connectQishuiMusic();
         } else if (QQ_PKG.equals(pkg)) {
@@ -1214,10 +1292,12 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 // Media Button Pulse (Works for QQ even without service name)
                 Intent mediaIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
                 mediaIntent.setPackage(QQ_PKG);
-                mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
+                mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(
+                        android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY));
                 sendBroadcast(mediaIntent);
-            } catch (Exception ignored) {}
-            
+            } catch (Exception ignored) {
+            }
+
             qqConnecting = false;
             connectQQMusic();
         } else {
@@ -1229,17 +1309,18 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private void bindControllerFromBrowser(MediaBrowserCompat browser, String pkg, String label) {
         try {
             MediaSessionCompat.Token token = browser.getSessionToken();
-            if (remoteCtrl != null) remoteCtrl.unregisterCallback(remoteCb);
+            if (remoteCtrl != null)
+                remoteCtrl.unregisterCallback(remoteCb);
             remoteCtrl = new MediaControllerCompat(this, token);
             remoteCtrl.registerCallback(remoteCb);
 
             isNcmMode = true;
             mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
-            
+
             // 🚀 SYNC: Update car screen metadata
             mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
             Log.i(TAG, "✅ 已通过 Browser 绑定 " + label + " 控制器并同步状态 [Passive Switch]");
-            
+
             // 📡 GLOBAL NOTIFY: Tell Sniffer and UI we switched
             sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
                     .setPackage(getPackageName())
