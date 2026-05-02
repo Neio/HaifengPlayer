@@ -14,13 +14,11 @@ import android.os.Bundle;
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import android.os.SystemClock;
 
 import android.content.BroadcastReceiver;
@@ -57,12 +55,14 @@ public class MainActivity extends AppCompatActivity {
 
     // ========================= 成员变量声明 =========================
     private TextView titleTv; // 歌名显示
-    private MediaControllerCompat qqCtrl; // QQ 音乐控制器
+    private MediaControllerCompat activeCtrl; // 当前活动的源控制器
     private android.support.v4.media.MediaBrowserCompat mBrowser; // 🎯 Internal Service Hotline
     private BroadcastReceiver tokenReceiver; // 广播接收器：接收 QqSessionSniffer 发送的 Token
 
     private final Handler progressHandler = new Handler(); // 用于进度更新
     private Runnable progressRunnable; // 进度任务
+        // activeCtrl is the main binding to whichever source (Lazy/Qishui/QQ) the user selected.
+        // We keep it as a field so all callbacks (tokenReceiver, connectSourceForTest) can update it.
 
     private Handler tickerHandler = new Handler(); // 播放进度模拟器
     private Runnable tickerRunnable;
@@ -70,33 +70,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
-    // 来源标识
-    private static final String SRC_QQ = "QQ";
-    private static final String SRC_NCM = "NCM";
-
-    private String activeSource = SRC_QQ; // 当前捕获来源（默认 QQ）
-
-    private boolean suppressLyricsToggle = false;
-
     private static final String ACTION_SELECTION_CHANGED = "com.haifeng.ACTION_SELECTION_CHANGED";
-
-    private BroadcastReceiver selectionChangedRx = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context c, Intent i) {
-
-            // ↓↓↓ 新增：会话变更时同步歌词开关
-            SwitchCompat sw = findViewById(R.id.switch_lyrics_mode);
-            boolean autoLyrics = getSharedPreferences("settings", MODE_PRIVATE)
-                    .getBoolean("autoLyrics", false);
-            String pkg = getSharedPreferences("session_pref", MODE_PRIVATE)
-                    .getString("last_pkg", null);
-            boolean isQQ = "com.tencent.qqmusic".equals(pkg);
-
-            suppressLyricsToggle = true;
-            sw.setChecked(autoLyrics && isQQ); // 非QQ时自动回拨为关；回到QQ且autoLyrics=true时自动打开
-            suppressLyricsToggle = false;
-        }
-    };
 
     private @Nullable Intent buildLaunchIntent(String pkg) {
         PackageManager pm = getPackageManager();
@@ -209,53 +183,10 @@ public class MainActivity extends AppCompatActivity {
                     return insets;
                 });
 
-        // 3) 读取偏好
-        SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
-        boolean autoLyrics = prefs.getBoolean("autoLyrics", false);
-        String savedSrc = prefs.getString("activeSource", SRC_QQ);
-        activeSource = SRC_NCM.equals(savedSrc) ? SRC_NCM : SRC_QQ;
-
-        // 4) 初始化两个开关
-        // 4.1 歌词模式开关（仅 QQ 音乐允许，其他 App 一律禁用）
-        SwitchCompat switchLyrics = findViewById(R.id.switch_lyrics_mode);
-
-        // 读取用户在 SessionPicker 里选择的 App
-        SharedPreferences selSp = getSharedPreferences("session_pref", MODE_PRIVATE);
-        String chosenPkg = selSp.getString("last_pkg", null);
-        boolean isQQSelected = "com.tencent.qqmusic".equals(chosenPkg);
-
-        // 只有当选择的是 QQ 且偏好为 true 才默认勾选
-        switchLyrics.setChecked(autoLyrics && isQQSelected);
-
-        switchLyrics.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (suppressLyricsToggle)
-                return;
-
-            // 实时确认当前所选 App（避免用户刚切换了选择）
-            SharedPreferences curSel = getSharedPreferences("session_pref", MODE_PRIVATE);
-            String currentPkg = curSel.getString("last_pkg", null);
-            boolean isQQ = "com.tencent.qqmusic".equals(currentPkg);
-
-            // 非 QQ 音乐：禁止开启歌词模式并回拨
-            if (!isQQ && isChecked) {
-                suppressLyricsToggle = true;
-                switchLyrics.setChecked(false); // 立刻回拨
-                suppressLyricsToggle = false;
-                Toast.makeText(MainActivity.this, "当前选择的 App 不支持歌词模式（仅 QQ 音乐）", Toast.LENGTH_SHORT).show();
-                prefs.edit().putBoolean("autoLyrics", false).apply();
-                return;
-            }
-
-            // QQ 音乐：正常落盘与通知
-            prefs.edit().putBoolean("autoLyrics", isChecked).apply();
-            if (isChecked) {
-                // 用户开启后立即激活歌词模式（由 MyMusicService 监听本地广播）
-                Intent intent = new Intent("com.haifeng.ACTION_TOGGLE_LYRICS_MODE");
-                LocalBroadcastManager.getInstance(MainActivity.this).sendBroadcast(intent);
-            }
-        });
-
         // 5) 注册广播接收器：仅采纳“当前选中的 App”
+            // Why: Multiple sources may broadcast their tokens concurrently. We only accept
+            // tokens from the source the user explicitly selected (stored in SharedPrefs).
+            // This prevents race conditions where Sniffer from source A overrides source B.
         tokenReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context c, Intent i) {
@@ -269,6 +200,9 @@ public class MainActivity extends AppCompatActivity {
                     return;
 
                 // 读取当前用户选中的包名
+                                // Why: Cross-check the incoming broadcast package with the user's preference.
+                                // If they don't match, ignore the broadcast (e.g., user has QQ selected,
+                                // but Lazy Audio's Sniffer fires its token broadcast).
                 SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
                 String chosenPkg = sp.getString("last_pkg", null);
                 if (chosenPkg == null || !chosenPkg.equals(sourcePkg)) {
@@ -280,14 +214,14 @@ public class MainActivity extends AppCompatActivity {
                 if (tk == null)
                     return;
 
-                if (qqCtrl != null)
-                    qqCtrl.unregisterCallback(cb);
+                if (activeCtrl != null)
+                    activeCtrl.unregisterCallback(cb);
                 try {
-                    qqCtrl = new MediaControllerCompat(MainActivity.this, tk);
-                    qqCtrl.registerCallback(cb, null);
-                    MediaControllerCompat.setMediaController(MainActivity.this, qqCtrl);
+                    activeCtrl = new MediaControllerCompat(MainActivity.this, tk);
+                    activeCtrl.registerCallback(cb, null);
+                    MediaControllerCompat.setMediaController(MainActivity.this, activeCtrl);
 
-                    MediaMetadataCompat meta = qqCtrl.getMetadata();
+                    MediaMetadataCompat meta = activeCtrl.getMetadata();
                     if (meta != null)
                         cb.onMetadataChanged(meta);
                 } catch (Exception e) {
@@ -298,9 +232,12 @@ public class MainActivity extends AppCompatActivity {
 
         // 🎯 统一注册广播 (Internal Only)
         registerReceiver(tokenReceiver, new IntentFilter(ACTION_CONTROLLER), Context.RECEIVER_NOT_EXPORTED);
-        registerReceiver(selectionChangedRx, new IntentFilter(ACTION_SELECTION_CHANGED), Context.RECEIVER_NOT_EXPORTED);
 
         // 🚀 ACTIVATE HOTLINE: Connect to our own service to keep it alive
+            // Why: The MyMusicService is a MediaBrowserServiceCompat that mirrors playback from
+            // external apps to Android Auto. We must keep this service alive and connected so it
+            // can receive subscriptions from car UIs. By connecting to it from MainActivity,
+            // we ensure the service is not garbage-collected by the system.
         mBrowser = new android.support.v4.media.MediaBrowserCompat(this,
                 new ComponentName(this, com.haifeng.shared.MyMusicService.class),
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
@@ -313,92 +250,82 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private android.support.v4.media.MediaBrowserCompat lazyBrowser;
+    private android.support.v4.media.MediaBrowserCompat proxyBrowser;
 
-    private void testLazyAudioProxy() {
-        String pkg = "bubei.tingshu.international";
-        String label = "懒人听书";
-
-        // 1. 保存到 SharedPreferences，这样 Sniffer 和 Service 才知道要监听谁
+    private void connectSourceForTest(String pkg, String serviceClass, String label, String logTag) {
         getSharedPreferences("session_pref", Context.MODE_PRIVATE)
                 .edit()
                 .putString("last_pkg", pkg)
                 .putString("last_label", label)
                 .apply();
 
-        // 2. 发送选择变更广播，通知 MainActivity 更新“打开应用”按钮内容
-        LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                        .putExtra("pkg", pkg)
-                        .putExtra("label", label));
+        sendBroadcast(new Intent(ACTION_SELECTION_CHANGED)
+                .setPackage(getPackageName())
+                .putExtra("pkg", pkg)
+                .putExtra("label", label));
 
-        // 3. 发送请求 Token 广播，让 Sniffer 立即去寻找该应用的 MediaSession
-        LocalBroadcastManager.getInstance(this)
-                .sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN"));
+        sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN")
+                .setPackage(getPackageName()));
+    // Disconnect the old proxy browser to free resources before creating a new one.
+    // Why: MediaBrowser holds a connection to the remote service. If we don't disconnect
+    // before creating a new one, we leak the old connection.
 
-        // 4. 连接 MediaBrowser 以通过 Data Proxy 方式唤醒应用
-        android.content.ComponentName component = new android.content.ComponentName(
-                pkg, "tingshu.bubei.mediasupport.service.MediaSessionBrowserService");
-        lazyBrowser = new android.support.v4.media.MediaBrowserCompat(this, component,
+        if (proxyBrowser != null && proxyBrowser.isConnected()) {
+            proxyBrowser.disconnect();
+        }
+
+        android.content.ComponentName component = new android.content.ComponentName(pkg, serviceClass);
+        proxyBrowser = new android.support.v4.media.MediaBrowserCompat(this, component,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
                     @Override
                     public void onConnected() {
-                        android.util.Log.i("LazyProxy", "✅ Connected to Lazy Audio!");
+                        Log.i(logTag, "✅ Connected: " + pkg);
                         try {
-                            // Reuse the same qqCtrl/cb pattern so the phone UI updates correctly
-                            if (qqCtrl != null)
-                                qqCtrl.unregisterCallback(cb);
-                            qqCtrl = new MediaControllerCompat(
-                                    MainActivity.this, lazyBrowser.getSessionToken());
-                            qqCtrl.registerCallback(cb, null);
-                            MediaControllerCompat.setMediaController(MainActivity.this, qqCtrl);
+                            if (activeCtrl != null) {
+                                activeCtrl.unregisterCallback(cb);
+                            }
+                            activeCtrl = new MediaControllerCompat(MainActivity.this, proxyBrowser.getSessionToken());
+                            activeCtrl.registerCallback(cb, null);
+                            MediaControllerCompat.setMediaController(MainActivity.this, activeCtrl);
 
-                            // Immediately refresh phone UI with current chapter info
-                            MediaMetadataCompat meta = qqCtrl.getMetadata();
-                            if (meta != null)
+                            MediaMetadataCompat meta = activeCtrl.getMetadata();
+                            if (meta != null) {
                                 cb.onMetadataChanged(meta);
-
-                            android.util.Log.i("LazyProxy", "🎧 Phone UI now shows Lazy Audio chapter");
+                            }
+                            PlaybackStateCompat state = activeCtrl.getPlaybackState();
+                            if (state != null) {
+                                cb.onPlaybackStateChanged(state);
+                            }
                         } catch (Exception e) {
-                            android.util.Log.e("LazyProxy", "❌ Failed to set MediaController", e);
+                            Log.e(logTag, "❌ Failed to bind controller", e);
                         }
+                    }
 
-                        // Log the content tree for debugging
-                        String root = lazyBrowser.getRoot();
-                        android.util.Log.i("LazyProxy", "Root ID: " + root);
-                        lazyBrowser.subscribe(root,
-                                new android.support.v4.media.MediaBrowserCompat.SubscriptionCallback() {
-                                    @Override
-                                    public void onChildrenLoaded(String parentId,
-                                            java.util.List<android.support.v4.media.MediaBrowserCompat.MediaItem> children) {
-                                        android.util.Log.i("LazyProxy",
-                                                "📂 Children of " + parentId + ": " + children.size());
-                                        for (android.support.v4.media.MediaBrowserCompat.MediaItem item : children) {
-                                            android.util.Log.i("LazyProxy",
-                                                    "  - [" + (item.isBrowsable() ? "DIR" : "FILE") + "] "
-                                                            + item.getDescription().getTitle() + " (ID: "
-                                                            + item.getMediaId() + ")");
-                                        }
-                                    }
-                                });
+                    @Override
+                    public void onConnectionSuspended() {
+                        Log.w(logTag, "⚠️ Connection suspended: " + pkg);
                     }
 
                     @Override
                     public void onConnectionFailed() {
-                        android.util.Log.e("LazyProxy", "❌ Connection Failed");
+                        Log.e(logTag, "❌ Connection failed: " + pkg);
                     }
                 }, null);
-        lazyBrowser.connect();
+        proxyBrowser.connect();
+        Toast.makeText(this, "已自动切换到：" + label, Toast.LENGTH_SHORT).show();
+    }
 
-        Toast.makeText(this, "已自动切换到：懒人听书", Toast.LENGTH_SHORT).show();
+    private void testLazyAudioProxy() {
+        connectSourceForTest("bubei.tingshu.international",
+                "tingshu.bubei.mediasupport.service.MediaSessionBrowserService", "懒人听书", "SourceProxy");
     }
 
     @Override
     protected void onDestroy() {
-        if (qqCtrl != null)
-            qqCtrl.unregisterCallback(cb);
-        if (lazyBrowser != null && lazyBrowser.isConnected()) {
-            lazyBrowser.disconnect();
+        if (activeCtrl != null)
+            activeCtrl.unregisterCallback(cb);
+        if (proxyBrowser != null && proxyBrowser.isConnected()) {
+            proxyBrowser.disconnect();
         }
         if (mBrowser != null && mBrowser.isConnected()) {
             mBrowser.disconnect();
@@ -407,7 +334,6 @@ public class MainActivity extends AppCompatActivity {
         // 🛡️ Global Unregister
         try {
             unregisterReceiver(tokenReceiver);
-            unregisterReceiver(selectionChangedRx);
         } catch (Exception ignored) {
         }
 
@@ -463,13 +389,16 @@ public class MainActivity extends AppCompatActivity {
     // ========================= 控制器回调 =========================
 
     /** QQ 控制器的元数据与播放状态监听回调 */
+    // Unified callback that handles metadata and playback state changes from any source.
+    // Why: Instead of three separate callbacks for Lazy/Qishui/QQ, we use one callback
+    // bound to activeCtrl (whichever source is selected) and update UI fragments accordingly.
     private final MediaControllerCompat.Callback cb = new MediaControllerCompat.Callback() {
 
         @Override
         public void onMetadataChanged(MediaMetadataCompat meta) {
             if (meta != null) {
                 String title = meta.getString(MediaMetadataCompat.METADATA_KEY_TITLE);
-                Log.i("QqSniffer", "歌曲标题更新为：" + title);
+                    Log.i("Mirror", "歌曲标题更新为：" + title);
 
                 // 更新控制面板（歌名、歌手、封面、总时长）
                 Fragment fragment = getSupportFragmentManager()
@@ -491,10 +420,10 @@ public class MainActivity extends AppCompatActivity {
                     if (frag2 != null) {
                         frag2.updateCover(cover);
                     } else {
-                        Log.w("QqSniffer", "封面Fragment未初始化");
+                        Log.w("Mirror", "封面Fragment未初始化");
                     }
                 } else {
-                    Log.w("QqSniffer", "未获取到封面图");
+                    Log.w("Mirror", "未获取到封面图");
                 }
 
                 String artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST);
@@ -513,7 +442,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
             }
-            PlaybackStateCompat state = qqCtrl.getPlaybackState();
+            PlaybackStateCompat state = activeCtrl.getPlaybackState();
             if (state != null) {
                 onPlaybackStateChanged(state);
             }
@@ -523,7 +452,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onPlaybackStateChanged(@NonNull PlaybackStateCompat state) {
             long position = state.getPosition();
-            Log.i("QqSniffer", "State → " + state.getState() + " | position = " + position);
+                Log.i("Mirror", "State → " + state.getState() + " | position = " + position);
 
             PlaybackControlsFragment frag = (PlaybackControlsFragment) getSupportFragmentManager()
                     .findFragmentById(R.id.playbackControlsFragment);
@@ -533,6 +462,10 @@ public class MainActivity extends AppCompatActivity {
             }
 
             // 开始/停止进度模拟器
+                        // Start/stop local progress simulation based on playback state.
+                        // Why: Some sources send position updates infrequently. By simulating +1s every second
+                        // when PLAYING, the UI feels responsive even if the remote app only sends updates
+                        // periodically. We stop the ticker when paused to match the real position.
             if (state.getState() == PlaybackStateCompat.STATE_PLAYING) {
                 startProgressTicker(position);
             } else {
@@ -577,83 +510,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void testQishuiMusicProxy() {
-        String pkg = "com.luna.music";
-        String label = "汽水音乐";
-
-        getSharedPreferences("session_pref", Context.MODE_PRIVATE)
-                .edit()
-                .putString("last_pkg", pkg)
-                .putString("last_label", label)
-                .apply();
-
-        sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                .setPackage(getPackageName())
-                .putExtra("pkg", pkg)
-                .putExtra("label", label));
-
-        sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN")
-                .setPackage(getPackageName()));
-
-        if (lazyBrowser != null && lazyBrowser.isConnected()) {
-            lazyBrowser.disconnect();
-        }
-
-        android.content.ComponentName component = new android.content.ComponentName(
-                pkg, "com.luna.biz.playing.player.PlayerService");
-
-        lazyBrowser = new android.support.v4.media.MediaBrowserCompat(this, component,
-                new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
-                    @Override
-                    public void onConnected() {
-                        android.support.v4.media.session.MediaSessionCompat.Token token = lazyBrowser.getSessionToken();
-                        Log.i("LazyProxy", "✅ Qishui Music Connected! Token=" + token);
-
-                        try {
-                            MediaControllerCompat controller = new MediaControllerCompat(MainActivity.this, token);
-                            MediaControllerCompat.setMediaController(MainActivity.this, controller);
-                            controller.registerCallback(cb);
-                            cb.onMetadataChanged(controller.getMetadata());
-                            cb.onPlaybackStateChanged(controller.getPlaybackState());
-                        } catch (Exception e) {
-                            Log.e("LazyProxy", "❌ Qishui Controller failed", e);
-                        }
-                    }
-
-                    @Override
-                    public void onConnectionSuspended() {
-                        Log.w("LazyProxy", "⚠️ Qishui Connection Suspended");
-                    }
-
-                    @Override
-                    public void onConnectionFailed() {
-                        Log.e("LazyProxy", "❌ Qishui Connection Failed");
-                    }
-                }, null);
-        lazyBrowser.connect();
+        connectSourceForTest("com.luna.music",
+                "com.luna.biz.playing.player.PlayerService", "汽水音乐", "SourceProxy");
     }
 
     private void testQQMusicProxy() {
-        String pkg = "com.tencent.qqmusic";
-        String label = "QQ音乐";
-        Log.i("MainActivity", "🔘 [QQ Switch] Tapped. Targeting: " + pkg);
-
-        getSharedPreferences("session_pref", Context.MODE_PRIVATE)
-                .edit()
-                .putString("last_pkg", pkg)
-                .putString("last_label", label)
-                .apply();
-
-        sendBroadcast(new Intent("com.haifeng.ACTION_SELECTION_CHANGED")
-                .setPackage(getPackageName())
-                .putExtra("pkg", pkg)
-                .putExtra("label", label));
-
-        sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN")
-                .setPackage(getPackageName()));
-
-        // For QQ, we don't need a browser proxy, just sniff the token
-        if (lazyBrowser != null && lazyBrowser.isConnected()) {
-            lazyBrowser.disconnect();
-        }
+        connectSourceForTest("com.tencent.qqmusic",
+                "com.tencent.qqmusic.MediaSessionBrowserService", "QQ音乐", "SourceProxy");
     }
 }
+                    // Cascade updates to multiple UI fragments.
+                    // Why: The phone UI is composed of multiple fragments (AlbumCoverFragment,
+                    // PlaybackControlsFragment). Each manages its own part of the display.
+                    // When metadata changes, we push updates to all relevant fragments.
+                    // Why: Different sources use different metadata keys for album art.
+                    // We check them in priority order to maximize the chance of finding a bitmap.
+                            // Unbind the old controller and bind the new one from this source.
+                            // Why: The MediaControllerCompat is the key to querying and controlling
+                            // a remote MediaSession. We bind it to UI callbacks (cb) so metadata/state
+                            // changes automatically update the phone UI fragments.
+    // Simulates playback progress locally by incrementing position every 1s.
+    // Why: Remote sources may send position updates only at intervals (e.g., every 5s).
+    // Local simulation fills the gap to make progress bar feel smooth and responsive.
+    // Unified helper: connect to a music source (Lazy/Qishui/QQ) and bind its MediaController.
+    // Why: All three sources follow the same pattern—save preferences, notify the service,
+    // create a MediaBrowser, bind the controller, and update UI. This consolidates that logic.

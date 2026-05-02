@@ -37,18 +37,6 @@
         app:layout_constraintTop_toTopOf="parent"
         app:navigationIcon="@drawable/ic_keyboard_arrow_down_24dp">
 
-        <!-- 歌词模式开关 -->
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/switch_lyrics_mode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:paddingTop="4dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="4dp"
-            android:text="自动开启歌词" />
-
-
 
     </com.google.android.material.appbar.MaterialToolbar>
 
