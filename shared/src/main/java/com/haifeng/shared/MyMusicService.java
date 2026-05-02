@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.content.pm.PackageManager;
 
 import androidx.annotation.NonNull;
 
@@ -150,7 +151,7 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     private class RemoteCallback extends MediaControllerCompat.Callback {
         @Override
         public void onMetadataChanged(MediaMetadataCompat m) {
-            mirror(m, null);
+            mirrorMetadata(m, remoteCtrl == null ? null : remoteCtrl.getPlaybackState());
         }
 
         @Override
@@ -172,7 +173,11 @@ public class MyMusicService extends MediaBrowserServiceCompat {
     // 🪞 同步信息到本地 Session
     // =========================================================
     private void mirror(MediaMetadataCompat meta, PlaybackStateCompat st) {
+        mirrorMetadata(meta, st);
+        mirrorPlaybackState(st);
+    }
 
+    private void mirrorMetadata(MediaMetadataCompat meta, PlaybackStateCompat st) {
         // --- 1. 同步元数据 ---
         if (meta != null) {
             String title = meta.getString(MediaMetadataCompat.METADATA_KEY_TITLE);
@@ -216,7 +221,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                     .build());
             Log.i(TAG, "ℹ️ Mirror: 远端无元数据，使用占位符 [" + label + "]");
         }
+    }
 
+    private void mirrorPlaybackState(PlaybackStateCompat st) {
         // --- 2. 同步播放状态 ---
         if (st != null) {
             int code = st.getState();
@@ -523,10 +530,19 @@ public class MyMusicService extends MediaBrowserServiceCompat {
         if (src.connecting || (src.browser != null && src.browser.isConnected())) {
             return;
         }
+
+        android.content.ComponentName cn = new android.content.ComponentName(src.pkg, src.svc);
+        if (!isServiceDeclared(cn)) {
+            Log.e(TAG, "❌ 来源服务不存在或不可见: " + cn.flattenToShortString());
+            flushPendingError(src.namespace);
+            // If direct browser bind is impossible, ask Sniffer path to recover controller.
+            sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN").setPackage(getPackageName()));
+            return;
+        }
+
         src.connecting = true;
         Log.i(TAG, "🔌 正在连接来源... pkg=" + src.pkg + " label=" + src.label);
 
-        android.content.ComponentName cn = new android.content.ComponentName(src.pkg, src.svc);
         android.support.v4.media.MediaBrowserCompat browser = new android.support.v4.media.MediaBrowserCompat(
                 this, cn,
                 new android.support.v4.media.MediaBrowserCompat.ConnectionCallback() {
@@ -578,6 +594,18 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                         src.connecting = false;
                         Log.e(TAG, "❌ 连接来源失败, pkg=" + src.pkg);
                         flushPendingError(src.namespace);
+
+                        // Services like Qishui may reject direct browse binds due to
+                        // signature-level permissions; token-sniffer path still works.
+                        if (src.wakeUp != null) {
+                            try {
+                                src.wakeUp.run();
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        handler.postDelayed(
+                                () -> sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN").setPackage(getPackageName())),
+                                300);
                     }
 
                     @Override
@@ -590,6 +618,18 @@ public class MyMusicService extends MediaBrowserServiceCompat {
 
         src.browser = browser;
         browser.connect();
+    }
+
+    private boolean isServiceDeclared(android.content.ComponentName component) {
+        try {
+            getPackageManager().getServiceInfo(component, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        } catch (Throwable t) {
+            Log.w(TAG, "⚠️ 服务声明预检异常: " + component.flattenToShortString(), t);
+            return true;
+        }
     }
 
     private void flushPendingError(String prefix) {
@@ -730,21 +770,21 @@ public class MyMusicService extends MediaBrowserServiceCompat {
             // 1. QQ
             items.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
                     .setMediaId("SWITCH_QQ")
-                    .setTitle("切换至: QQ音乐")
+                    .setTitle("QQ音乐")
                     .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qq_vec))
                     .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
 
             // 2. Lazy
             items.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
                     .setMediaId("SWITCH_LAZY")
-                    .setTitle("切换至: 懒人听书")
+                    .setTitle("懒人听书")
                     .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_vec))
                     .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
 
             // 3. Qishui
             items.add(new MediaBrowserCompat.MediaItem(new MediaDescriptionCompat.Builder()
                     .setMediaId("SWITCH_QISHUI")
-                    .setTitle("切换至: 汽水音乐")
+                    .setTitle("汽水音乐")
                     .setIconUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_vec))
                     .build(), MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
 

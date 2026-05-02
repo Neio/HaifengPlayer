@@ -10,6 +10,12 @@ export PATH=$JAVA_HOME/bin:$PATH
 ./gradlew :mobile:installDebug
 ```
 
+Pull logs
+
+```bash
+adb logcat --pid=$(adb shell pidof -s com.haifeng) -v time
+```
+
 ## Project Context
 - **Project Name**: Haifeng Player (formerly Nuomi Player)
 - **Primary Modules**: 

@@ -67,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private Handler tickerHandler = new Handler(); // 播放进度模拟器
     private Runnable tickerRunnable;
     private long currentPositionMs = 0; // 当前播放位置（ms）
+    private int lastPlaybackState = PlaybackStateCompat.STATE_NONE; // 上一次播放状态，用于避免重复重启ticker
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
@@ -442,17 +443,14 @@ public class MainActivity extends AppCompatActivity {
                 }
 
             }
-            PlaybackStateCompat state = activeCtrl.getPlaybackState();
-            if (state != null) {
-                onPlaybackStateChanged(state);
-            }
 
         }
 
         @Override
         public void onPlaybackStateChanged(@NonNull PlaybackStateCompat state) {
             long position = state.getPosition();
-                Log.i("Mirror", "State → " + state.getState() + " | position = " + position);
+            int newState = state.getState();
+                Log.i("Mirror", "State → " + newState + " | position = " + position);
 
             PlaybackControlsFragment frag = (PlaybackControlsFragment) getSupportFragmentManager()
                     .findFragmentById(R.id.playbackControlsFragment);
@@ -466,11 +464,18 @@ public class MainActivity extends AppCompatActivity {
                         // Why: Some sources send position updates infrequently. By simulating +1s every second
                         // when PLAYING, the UI feels responsive even if the remote app only sends updates
                         // periodically. We stop the ticker when paused to match the real position.
-            if (state.getState() == PlaybackStateCompat.STATE_PLAYING) {
-                startProgressTicker(position);
+            if (newState == PlaybackStateCompat.STATE_PLAYING) {
+                if (lastPlaybackState != PlaybackStateCompat.STATE_PLAYING) {
+                    startProgressTicker(position);
+                } else {
+                    // Keep ticker running and only re-sync baseline to avoid restart jitter.
+                    currentPositionMs = position;
+                }
             } else {
                 stopProgressTicker();
             }
+
+            lastPlaybackState = newState;
         }
     };
 

@@ -177,7 +177,8 @@ public class PlaybackControlsFragment extends Fragment {
         }
 
         if (progressSlider != null && !progressSlider.isTrackingTouch()) {
-            progressSlider.setValue((int) milliseconds);
+            int clamped = (int) Math.min(milliseconds, progressSlider.getValueTo());
+            progressSlider.setValue(Math.max(clamped, (int) progressSlider.getValueFrom()));
         }
     }
 
@@ -188,7 +189,11 @@ public class PlaybackControlsFragment extends Fragment {
         }
 
         if (progressSlider != null) {
-            progressSlider.setValueTo((int) Math.max(milliseconds, 1));
+            int newMax = (int) Math.max(milliseconds, 1);
+            // Reset value to 0 first so value <= valueTo is never violated when the
+            // new track is shorter than the previous one.
+            progressSlider.setValue(progressSlider.getValueFrom());
+            progressSlider.setValueTo(newMax);
         }
     }
 
