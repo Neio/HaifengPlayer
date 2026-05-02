@@ -383,6 +383,9 @@ public class MyMusicService extends MediaBrowserServiceCompat {
                 QQ_PKG, QQ_SVC, "QQ音乐", "QQ_", null,
                 CUSTOM_ACTION_SWITCH_QQ, "SWITCH_QQ", () -> {
                     try {
+                        Intent wake = new Intent("android.media.browse.MediaBrowserService");
+                        wake.setComponent(new android.content.ComponentName(QQ_PKG, QQ_SVC));
+                        startService(wake);
                         Intent pulse = new Intent(Intent.ACTION_MEDIA_BUTTON);
                         pulse.setPackage(QQ_PKG);
                         pulse.putExtra(Intent.EXTRA_KEY_EVENT, new android.view.KeyEvent(
