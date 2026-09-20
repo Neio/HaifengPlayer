@@ -47,11 +47,9 @@ dependencies {
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
     implementation(libs.media)
-    implementation("androidx.core:core:1.16.0")
+    implementation("androidx.core:core:1.18.0")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
-    implementation("androidx.media3:media3-session:1.4.0")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
-    implementation("androidx.media:media:1.6.0")
-    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
 
 }
