@@ -10,6 +10,7 @@
 | :--- | :--- | :--- | :--- |
 | **Phase 1: 车机交互增强** | 车机自定义操作按钮 (CommandButtons) | 播放页直达：单曲循环、随机播放、快捷切源 | 🟢 低 |
 | **Phase 1: 车机交互增强** | 快进 / 快退与倍速调整 | 大幅提升“懒人听书”有声书/播客的收听体验 | 🟢 低 |
+| **Phase 2: 车载音频路由治理** | 蓝牙双连音频路由抢占与恢复 (Audio Routing) | 解决无线 AA 与车载蓝牙抢音频通道导致哑音问题 | 🟡 中 |
 | **Phase 2: 队列与媒体透传** | 播放队列透传 (Playback Queue) | 在车机 Now Playing 界面查看并点播待播歌单 | 🟡 中 |
 | **Phase 2: 队列与媒体透传** | 现代化车机浏览卡片 (Content Style) | 车机切源菜单升级为网格图标卡片 (Grid Card) | 🟢 低 |
 | **Phase 3: 体验与生态拓展** | 第三方音乐源拓展 | 支持网易云音乐、酷狗、Apple Music 等更多应用 | 🟡 中 |
@@ -40,9 +41,28 @@
 
 ---
 
-### Phase 2: 队列与媒体透传 (Queue & Media Styling)
+### Phase 2: 车载音频路由治理 (Bluetooth & Audio Routing)
 
-#### 2.1 播放队列透传 (Playback Queue / Playlist)
+#### 2.1 蓝牙双连音频通道抢占与自动恢复 (Audio Routing & Dual-Bluetooth Priority)
+- **痛点与场景描述**：
+  - 开车时，手机通常会使用无线 Android Auto（底层通过 WiFi 投影，但握手和通话依赖蓝牙 HFP）。
+  - 同时，手机可能也连着车机的传统蓝牙音频（A2DP 媒体通道）。
+  - 由于系统将 Android Auto 虚拟音频通道判定为 Active（或将音频错发往车机不支持的次级蓝牙信道），导致音乐实际上在“空转”播放，但车机音响没有声音输出（“哑音”）。
+- **技术方案与治理策略**：
+  1. **音频输出设备感知 (AudioDeviceInfo)**：
+     - 使用 `AudioManager.registerAudioDeviceCallback()` 监听连接变动。
+     - 区分 `TYPE_BLUETOOTH_A2DP`、`TYPE_BLUETOOTH_SCO` 与车机 USB/AA 虚拟通道。
+  2. **强制路由重定向 (setCommunicationDevice / setPreferredDeviceForStrategy)**：
+     - 当检测到 Android Auto 会话建立，且音频输出未落在预期的目标车载蓝牙设备或投影通道时，提供“音频通道重置/激活”机制。
+  3. **手机端与车机端一键“切换/重置音频输出”动作**：
+     - 在手机界面和车机 CommandButton 上提供一个“修复音频/切到车载蓝牙”的动作按钮，主动触发 `AudioTrack` 探测重置，使车机音响恢复发声。
+- **预期收益**：彻底解决上车后无线 Android Auto 与原车蓝牙冲突导致的“有进度、没声音”高频痛点。
+
+---
+
+### Phase 3: 队列与媒体透传 (Queue & Media Styling)
+
+#### 3.1 播放队列透传 (Playback Queue / Playlist)
 - **现状**：车机端仅将当前播放的一首歌封装成单一 `MediaItem`，车机右上角队列图标置灰不可点。
 - **技术实现**：
   - 监听第三方播放器的 `remoteCtrl.getQueue()` 与 `onQueueChanged()`。
@@ -51,7 +71,7 @@
 - **互不冲突保证**：
   - “播放队列”是播放页（Now Playing）的歌曲清单，与外层菜单（Browse Tree）的“切换播放源”分属不同 API，彼此独立。
 
-#### 2.2 现代化车机浏览卡片样式 (Media3 Content Style API)
+#### 3.2 现代化车机浏览卡片样式 (Media3 Content Style API)
 - **现状**：车机“切换播放源”文件夹采用标准文本列表。
 - **技术实现**：
   - 使用 `MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE = EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM`。
@@ -61,9 +81,9 @@
 
 ---
 
-### Phase 3: 体验与生态拓展 (Ecosystem & Visuals)
+### Phase 4: 体验与生态拓展 (Ecosystem & Visuals)
 
-#### 3.1 拓展更多国内音频应用源
+#### 4.1 拓展更多国内音频应用源
 - **候选应用**：
   - 网易云音乐 (NetEase Cloud Music)
   - 酷狗音乐 / 酷我音乐
@@ -71,7 +91,7 @@
 - **技术路径**：
   - 分析各应用公开暴露的 `MediaBrowserService` 与 `MediaSession` Token，将其接入 `MyMusicService` 的 `SourceConfig` 注册表与 `MusicSessionSniffer` 探测器。
 
-#### 3.2 歌词同步与渲染引擎优化
+#### 4.2 歌词同步与渲染引擎优化
 - **现状**：车机端显示歌词通过元数据副标题/自定义通知或悬浮窗刷新。
 - **技术优化**：
   - 结合 Media3 高频且低能耗的 `PositionSupplier` 插值算法，使歌词滚动的毫秒级时间戳更平滑，降低跨进程广播的唤醒频率。
@@ -84,6 +104,7 @@
   - [ ] 增加车机循环模式与随机播放 CommandButton。
   - [ ] 增加车机快进 30s / 快退 15s 按钮支持。
 - **v1.2**:
+  - [ ] **车载蓝牙与 Android Auto 音频路由状态检测与修复机制**。
   - [ ] 接入第三方应用播放队列透传 (Queue / Playlist)。
   - [ ] 升级车机切源菜单为 Grid Item 样式。
 - **v2.0**:
