@@ -18,5 +18,6 @@ android {
 }
 dependencies {
     implementation libs.media
+    implementation libs.media3.session
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 }
