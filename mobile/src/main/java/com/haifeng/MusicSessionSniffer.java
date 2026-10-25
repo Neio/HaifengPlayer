@@ -41,6 +41,13 @@ public class MusicSessionSniffer extends NotificationListenerService {
     private MediaController selectedCtrl;   // 当前选中包名对应的 controller
     private String selectedPkg;             // 当前选中的包名（从 SP 读取）
 
+    private final MediaSessionManager.OnActiveSessionsChangedListener sessionsChangedListener =
+            controllers -> {
+                Log.i("Sniffer", "🔄 onActiveSessionsChanged: 活跃会话变更");
+                refreshSelectedController();
+                sendTokenIfAny();
+            };
+
     @Override public void onCreate() {
         super.onCreate();
         Log.i("Sniffer", "🚀 MusicSessionSniffer 启动");
@@ -51,12 +58,28 @@ public class MusicSessionSniffer extends NotificationListenerService {
         try {
             unregisterReceiver(reqTokenRx);
         } catch (Exception ignored) {}
+        MediaSessionManager sm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
+        if (sm != null) {
+            try {
+                sm.removeOnActiveSessionsChangedListener(sessionsChangedListener);
+            } catch (Exception ignored) {}
+        }
         Log.i("Sniffer", "🛑 MusicSessionSniffer 已销毁");
         super.onDestroy();
     }
 
     @Override public void onListenerConnected() {
         Log.i("Sniffer", "🔌 已连接到通知监听服务");
+        MediaSessionManager sm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
+        if (sm != null) {
+            try {
+                ComponentName me = new ComponentName(this, MusicSessionSniffer.class);
+                sm.addOnActiveSessionsChangedListener(sessionsChangedListener, me);
+                Log.i("Sniffer", "✅ 已注册 OnActiveSessionsChangedListener");
+            } catch (Exception e) {
+                Log.w("Sniffer", "⚠️ 注册 OnActiveSessionsChangedListener 失败", e);
+            }
+        }
         refreshSelectedController();
         sendTokenIfAny();
     }

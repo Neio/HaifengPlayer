@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -72,14 +73,19 @@ public class MyMusicService extends MediaLibraryService {
 
     private static final String LAZY_PKG = "bubei.tingshu.international";
     private static final String LAZY_SVC = "tingshu.bubei.mediasupport.service.MediaSessionBrowserService";
+    private static final String LAZY_MBR = "bubei.tingshu.listen.mediaplayer.MediaButtonReceiver";
 
     private static final String QISHUI_PKG = "com.luna.music";
     private static final String QISHUI_SVC = "com.luna.biz.playing.player.PlayerService";
+    private static final String QISHUI_MBR = "com.luna.biz.playing.player.BachMediaButtonReceiver";
 
     private static final String QQ_PKG = "com.tencent.qqmusic";
     private static final String QQ_SVC = "com.tencent.qqmusic.MediaSessionBrowserService";
+    private static final String QQ_MBR = "androidx.media.session.MediaButtonReceiver";
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
+
+    private volatile boolean pendingAutoPlay = false;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -95,6 +101,7 @@ public class MyMusicService extends MediaLibraryService {
     private long currentDurationMs = 3600000L;
     private byte[] currentArtworkData = null;
     private boolean isPlaying = false;
+    private boolean isPlayWhenReady = false;
     private int playbackStateCode = Player.STATE_READY;
     private long currentPositionMs = 0L;
     private float playbackSpeed = 1.0f;
@@ -111,6 +118,7 @@ public class MyMusicService extends MediaLibraryService {
         final String rootId;       // browse root parentId; null = not browseable
         final String customAction; // custom action string sent by AA, e.g. "ACTION_LAZY"
         final String switchMediaId;// media-id used to trigger a switch, e.g. "SWITCH_LAZY"
+        final String mediaButtonReceiver;
         final Runnable wakeUp;     // source-specific wake-up signal; may be null
 
         MediaBrowserCompat browser;
@@ -119,7 +127,7 @@ public class MyMusicService extends MediaLibraryService {
 
         SourceConfig(String pkg, String svc, String label, String namespace,
                      String rootId, String customAction, String switchMediaId,
-                     Runnable wakeUp) {
+                     String mediaButtonReceiver, Runnable wakeUp) {
             this.pkg = pkg;
             this.svc = svc;
             this.label = label;
@@ -127,6 +135,7 @@ public class MyMusicService extends MediaLibraryService {
             this.rootId = rootId;
             this.customAction = customAction;
             this.switchMediaId = switchMediaId;
+            this.mediaButtonReceiver = mediaButtonReceiver;
             this.wakeUp = wakeUp;
         }
     }
@@ -199,7 +208,7 @@ public class MyMusicService extends MediaLibraryService {
 
             return new State.Builder()
                     .setAvailableCommands(commands)
-                    .setPlayWhenReady(isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE)
+                    .setPlayWhenReady(isPlayWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE)
                     .setPlaybackState(playbackStateCode)
                     .setPlaylist(Collections.singletonList(itemData))
                     .setCurrentMediaItemIndex(0)
@@ -212,15 +221,25 @@ public class MyMusicService extends MediaLibraryService {
         @Override
         protected ListenableFuture<?> handleSetPlayWhenReady(boolean playWhenReady) {
             Log.i(TAG, "💓 MirrorPlayer handleSetPlayWhenReady: " + playWhenReady);
+            isPlayWhenReady = playWhenReady;
+            SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
+            String chosenPkg = sp.getString("last_pkg", null);
+            SourceConfig curSrc = chosenPkg != null ? sources.get(chosenPkg) : null;
+
             if (remoteCtrl != null) {
                 if (playWhenReady) {
                     remoteCtrl.getTransportControls().play();
                 } else {
                     remoteCtrl.getTransportControls().pause();
                 }
+            } else if (playWhenReady) {
+                pendingAutoPlay = true;
+                Log.i(TAG, "⏳ remoteCtrl 尚在连接建立中，暂存 play 意图并补发按键");
             }
-            isPlaying = playWhenReady;
-            playbackStateCode = Player.STATE_READY;
+
+            if (curSrc != null) {
+                sendPairMediaButton(curSrc, playWhenReady ? KeyEvent.KEYCODE_MEDIA_PLAY : KeyEvent.KEYCODE_MEDIA_PAUSE);
+            }
             invalidateState();
             return Futures.immediateVoidFuture();
         }
@@ -412,16 +431,19 @@ public class MyMusicService extends MediaLibraryService {
             switch (code) {
                 case PlaybackStateCompat.STATE_PLAYING:
                     isPlaying = true;
+                    isPlayWhenReady = true;
                     playbackStateCode = Player.STATE_READY;
                     break;
                 case PlaybackStateCompat.STATE_BUFFERING:
                 case PlaybackStateCompat.STATE_CONNECTING:
                     isPlaying = true;
+                    isPlayWhenReady = true;
                     playbackStateCode = Player.STATE_BUFFERING;
                     break;
                 case PlaybackStateCompat.STATE_PAUSED:
                 default:
                     isPlaying = false;
+                    isPlayWhenReady = false;
                     playbackStateCode = Player.STATE_READY;
                     break;
             }
@@ -436,6 +458,7 @@ public class MyMusicService extends MediaLibraryService {
             }
         } else {
             isPlaying = false;
+            isPlayWhenReady = false;
             playbackStateCode = Player.STATE_READY;
             currentPositionMs = 0L;
             if (mirrorPlayer != null) {
@@ -499,6 +522,8 @@ public class MyMusicService extends MediaLibraryService {
                 mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
                 Log.i("Mirror", "✅ 绑定远端控制器 [Sniffer Path], pkg=" + sourcePkg);
 
+                triggerAutoPlayIfPending("tokenRx");
+
                 updateSessionActive("snifferUpdate");
             } catch (Exception e) {
                 Log.e("Mirror", "❌ 绑定远端控制器失败 [Sniffer Path]", e);
@@ -516,35 +541,13 @@ public class MyMusicService extends MediaLibraryService {
         sources = new LinkedHashMap<>();
         sources.put(LAZY_PKG, new SourceConfig(
                 LAZY_PKG, LAZY_SVC, "懒人听书", "LAZY_", "LAZY_ROOT",
-                CUSTOM_ACTION_SWITCH_LAZY, "SWITCH_LAZY", null));
+                CUSTOM_ACTION_SWITCH_LAZY, "SWITCH_LAZY", LAZY_MBR, () -> wakeUpSource(sources.get(LAZY_PKG))));
         sources.put(QISHUI_PKG, new SourceConfig(
                 QISHUI_PKG, QISHUI_SVC, "汽水音乐", "QISHUI_", "QISHUI_ROOT",
-                CUSTOM_ACTION_SWITCH_QISHUI, "SWITCH_QISHUI", () -> {
-            try {
-                Intent wake = new Intent("android.media.browse.MediaBrowserService");
-                wake.setComponent(new ComponentName(QISHUI_PKG, QISHUI_SVC));
-                startService(wake);
-                Intent pulse = new Intent(Intent.ACTION_MEDIA_BUTTON);
-                pulse.setPackage(QISHUI_PKG);
-                pulse.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(
-                        KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY));
-                sendBroadcast(pulse);
-            } catch (Exception ignored) {}
-        }));
+                CUSTOM_ACTION_SWITCH_QISHUI, "SWITCH_QISHUI", QISHUI_MBR, () -> wakeUpSource(sources.get(QISHUI_PKG))));
         sources.put(QQ_PKG, new SourceConfig(
                 QQ_PKG, QQ_SVC, "QQ音乐", "QQ_", null,
-                CUSTOM_ACTION_SWITCH_QQ, "SWITCH_QQ", () -> {
-            try {
-                Intent wake = new Intent("android.media.browse.MediaBrowserService");
-                wake.setComponent(new ComponentName(QQ_PKG, QQ_SVC));
-                startService(wake);
-                Intent pulse = new Intent(Intent.ACTION_MEDIA_BUTTON);
-                pulse.setPackage(QQ_PKG);
-                pulse.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(
-                        KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY));
-                sendBroadcast(pulse);
-            } catch (Exception ignored) {}
-        }));
+                CUSTOM_ACTION_SWITCH_QQ, "SWITCH_QQ", QQ_MBR, () -> wakeUpSource(sources.get(QQ_PKG))));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -671,6 +674,33 @@ public class MyMusicService extends MediaLibraryService {
 
         @NonNull
         @Override
+        public ListenableFuture<List<MediaItem>> onAddMediaItems(
+                @NonNull MediaSession session,
+                @NonNull MediaSession.ControllerInfo controller,
+                @NonNull List<MediaItem> mediaItems) {
+            Log.i(TAG, "🎯 [AA Callback] onAddMediaItems: count=" + mediaItems.size());
+            for (MediaItem item : mediaItems) {
+                if (item.mediaId != null) {
+                    onMediaIdSelected(item.mediaId, item.requestMetadata != null ? item.requestMetadata.extras : null);
+                }
+            }
+            return Futures.immediateFuture(mediaItems);
+        }
+
+        @NonNull
+        @Override
+        public ListenableFuture<MediaSession.MediaItemsWithStartPosition> onPlaybackResumption(
+                @NonNull MediaSession session,
+                @NonNull MediaSession.ControllerInfo controller) {
+            Log.i(TAG, "🎯 [AA Callback] onPlaybackResumption");
+            if (remoteCtrl != null) {
+                remoteCtrl.getTransportControls().play();
+            }
+            return MediaLibrarySession.Callback.super.onPlaybackResumption(session, controller);
+        }
+
+        @NonNull
+        @Override
         public ListenableFuture<LibraryResult<MediaItem>> onGetLibraryRoot(
                 @NonNull MediaLibrarySession session,
                 @NonNull MediaSession.ControllerInfo controller,
@@ -721,8 +751,30 @@ public class MyMusicService extends MediaLibraryService {
                                 .build())
                         .build();
 
+                List<MediaItem> rootItems = new ArrayList<>();
+                rootItems.add(cmdFolder);
+
+                SharedPreferences sp = getSharedPreferences("session_pref", MODE_PRIVATE);
+                String currentPkg = sp.getString("last_pkg", null);
+                if (currentPkg != null) {
+                    SourceConfig curSrc = sources.get(currentPkg);
+                    if (curSrc != null && curSrc.rootId != null) {
+                        MediaItem sourceFolder = new MediaItem.Builder()
+                                .setMediaId(curSrc.rootId)
+                                .setMediaMetadata(new MediaMetadata.Builder()
+                                        .setTitle("📚 " + curSrc.label + " 内容库")
+                                        .setSubtitle("点此查看 " + curSrc.label + " 目录与书籍")
+                                        .setIsBrowsable(true)
+                                        .setIsPlayable(false)
+                                        .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
+                                        .build())
+                                .build();
+                        rootItems.add(sourceFolder);
+                    }
+                }
+
                 return Futures.immediateFuture(LibraryResult.ofItemList(
-                        ImmutableList.of(cmdFolder), params));
+                        ImmutableList.copyOf(rootItems), params));
             }
 
             // 🎯 CONTENT OF THE SWITCH FOLDER
@@ -767,17 +819,16 @@ public class MyMusicService extends MediaLibraryService {
             // 🎯 HANDLE SWITCH COMMAND FROM BROWSER
             if ("SWITCH_QQ".equals(parentId)) {
                 performManualSwitch(QQ_PKG, "QQ音乐");
-                MediaItem feedback = new MediaItem.Builder()
-                        .setMediaId("SWITCH_DONE")
-                        .setMediaMetadata(new MediaMetadata.Builder()
-                                .setTitle("✅ 已切换至 QQ音乐")
-                                .setIsBrowsable(false)
-                                .setIsPlayable(true)
-                                .setFolderType(MediaMetadata.FOLDER_TYPE_NONE)
-                                .build())
-                        .build();
                 return Futures.immediateFuture(LibraryResult.ofItemList(
-                        ImmutableList.of(feedback), params));
+                        ImmutableList.of(buildSwitchFeedbackItem("QQ音乐")), params));
+            } else if ("SWITCH_LAZY".equals(parentId)) {
+                performManualSwitch(LAZY_PKG, "懒人听书");
+                return Futures.immediateFuture(LibraryResult.ofItemList(
+                        ImmutableList.of(buildSwitchFeedbackItem("懒人听书")), params));
+            } else if ("SWITCH_QISHUI".equals(parentId)) {
+                performManualSwitch(QISHUI_PKG, "汽水音乐");
+                return Futures.immediateFuture(LibraryResult.ofItemList(
+                        ImmutableList.of(buildSwitchFeedbackItem("汽水音乐")), params));
             }
 
             // 🎯 Handle Proxied Browsing: look up source by rootId or namespace prefix
@@ -892,27 +943,40 @@ public class MyMusicService extends MediaLibraryService {
                     public void onConnected() {
                         src.connected = true;
                         src.connecting = false;
-                        Log.i(TAG, "✅ 已连接来源 MediaBrowserService, pkg=" + src.pkg
-                                + " root=" + src.browser.getRoot());
+                        String root = null;
+                        try {
+                            root = (src.browser != null && src.browser.isConnected()) ? src.browser.getRoot() : null;
+                        } catch (Exception e) {
+                            Log.w(TAG, "⚠️ 获取来源 root 异常: " + e.getMessage());
+                        }
+                        Log.i(TAG, "✅ 已连接来源 MediaBrowserService, pkg=" + src.pkg + " root=" + root);
 
                         try {
-                            MediaSessionCompat.Token token = src.browser.getSessionToken();
-                            if (remoteCtrl != null) {
-                                remoteCtrl.unregisterCallback(remoteCb);
+                            if (src.browser != null && src.browser.isConnected()) {
+                                MediaSessionCompat.Token token = src.browser.getSessionToken();
+                                if (token != null) {
+                                    if (remoteCtrl != null) {
+                                        remoteCtrl.unregisterCallback(remoteCb);
+                                    }
+                                    remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
+                                    remoteCtrl.registerCallback(remoteCb);
+
+                                    getSharedPreferences("session_pref", MODE_PRIVATE)
+                                            .edit()
+                                            .putString("last_pkg", src.pkg)
+                                            .putString("last_label", src.label)
+                                            .apply();
+
+                                    triggerAutoPlayIfPending("connectSource");
+
+                                    handler.postDelayed(() -> {
+                                        if (remoteCtrl != null) {
+                                            mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
+                                        }
+                                        Log.i(TAG, "🎧 已绑定来源控制器并同步状态, pkg=" + src.pkg);
+                                    }, 500);
+                                }
                             }
-                            remoteCtrl = new MediaControllerCompat(MyMusicService.this, token);
-                            remoteCtrl.registerCallback(remoteCb);
-
-                            getSharedPreferences("session_pref", MODE_PRIVATE)
-                                    .edit()
-                                    .putString("last_pkg", src.pkg)
-                                    .putString("last_label", src.label)
-                                    .apply();
-
-                            handler.postDelayed(() -> {
-                                mirror(remoteCtrl.getMetadata(), remoteCtrl.getPlaybackState());
-                                Log.i(TAG, "🎧 已绑定来源控制器并同步状态, pkg=" + src.pkg);
-                            }, 500);
                         } catch (Exception e) {
                             Log.e(TAG, "❌ 绑定来源控制器失败, pkg=" + src.pkg, e);
                         }
@@ -923,7 +987,11 @@ public class MyMusicService extends MediaLibraryService {
                                 pendingBrowseFutures.remove(rootPendingKey);
                         if (futures != null) {
                             for (SettableFuture<LibraryResult<ImmutableList<MediaItem>>> f : futures) {
-                                subscribeAndDeliverFuture(src.browser, src.browser.getRoot(), src.namespace, f, null);
+                                if (root != null && src.browser != null && src.browser.isConnected()) {
+                                    subscribeAndDeliverFuture(src.browser, root, src.namespace, f, null);
+                                } else {
+                                    f.set(LibraryResult.ofItemList(ImmutableList.of(), null));
+                                }
                             }
                         }
                     }
@@ -986,31 +1054,45 @@ public class MyMusicService extends MediaLibraryService {
     }
 
     private void pauseCurrentSourceBeforeSwitch(String nextPkg) {
-        if (remoteCtrl == null) {
-            return;
-        }
-
         String currentPkg = getSharedPreferences("session_pref", MODE_PRIVATE)
                 .getString("last_pkg", null);
         if (currentPkg == null || currentPkg.equals(nextPkg)) {
             return;
         }
 
-        try {
-            PlaybackStateCompat state = remoteCtrl.getPlaybackState();
-            if (state == null) {
-                return;
+        // 1. 通过当前 controller 暂停
+        if (remoteCtrl != null) {
+            try {
+                PlaybackStateCompat state = remoteCtrl.getPlaybackState();
+                if (state != null) {
+                    int currentState = state.getState();
+                    if (currentState == PlaybackStateCompat.STATE_PLAYING
+                            || currentState == PlaybackStateCompat.STATE_BUFFERING
+                            || currentState == PlaybackStateCompat.STATE_CONNECTING) {
+                        Log.i(TAG, "⏸️ Pre-switch pause current source: " + currentPkg + " -> " + nextPkg);
+                        remoteCtrl.getTransportControls().pause();
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "⚠️ Pre-switch pause failed for pkg=" + currentPkg, e);
             }
+        }
 
-            int currentState = state.getState();
-            if (currentState == PlaybackStateCompat.STATE_PLAYING
-                    || currentState == PlaybackStateCompat.STATE_BUFFERING
-                    || currentState == PlaybackStateCompat.STATE_CONNECTING) {
-                Log.i(TAG, "⏸️ Pre-switch pause current source: " + currentPkg + " -> " + nextPkg);
-                remoteCtrl.getTransportControls().pause();
+        // 2. 补发物理暂停按键广播，彻底释放旧音频焦点
+        SourceConfig oldSrc = sources.get(currentPkg);
+        if (oldSrc != null) {
+            sendPairMediaButton(oldSrc, KeyEvent.KEYCODE_MEDIA_PAUSE);
+        }
+
+        // 3. 断开旧源的 MediaBrowser
+        for (SourceConfig s : sources.values()) {
+            if (!s.pkg.equals(nextPkg) && s.browser != null && s.browser.isConnected()) {
+                try {
+                    s.browser.disconnect();
+                } catch (Exception ignored) {}
+                s.connected = false;
+                s.connecting = false;
             }
-        } catch (Exception e) {
-            Log.w(TAG, "⚠️ Pre-switch pause failed for pkg=" + currentPkg, e);
         }
     }
 
@@ -1097,7 +1179,14 @@ public class MyMusicService extends MediaLibraryService {
 
     private void performManualSwitch(String pkg, String label) {
         Log.i(TAG, "🔄 [Universal Sync] Switching to: " + label + " (" + pkg + ")");
+        pendingAutoPlay = true;
         pauseCurrentSourceBeforeSwitch(pkg);
+        if (remoteCtrl != null) {
+            try {
+                remoteCtrl.unregisterCallback(remoteCb);
+            } catch (Exception ignored) {}
+            remoteCtrl = null;
+        }
         getSharedPreferences("session_pref", MODE_PRIVATE)
                 .edit()
                 .putString("last_pkg", pkg)
@@ -1113,7 +1202,8 @@ public class MyMusicService extends MediaLibraryService {
         currentTitle = "正在切换至: " + label;
         currentArtist = "海风播放器 · 魔法桥接中...";
         currentArtworkData = null;
-        isPlaying = true;
+        isPlaying = false;
+        isPlayWhenReady = true;
         playbackStateCode = Player.STATE_BUFFERING;
 
         if (mirrorPlayer != null) {
@@ -1132,6 +1222,124 @@ public class MyMusicService extends MediaLibraryService {
             src.connecting = false;
             connectSource(src);
         }
-        sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN").setPackage(getPackageName()));
+
+        // 渐进式多轮请求 Token，应对冷启动进程就绪延迟
+        int[] delays = {300, 800, 1500, 3000};
+        for (int d : delays) {
+            handler.postDelayed(() -> {
+                sendBroadcast(new Intent("com.haifeng.REQUEST_TOKEN").setPackage(getPackageName()));
+            }, d);
+        }
+    }
+
+    private void triggerAutoPlayIfPending(String caller) {
+        if (pendingAutoPlay && remoteCtrl != null) {
+            pendingAutoPlay = false;
+            Log.i(TAG, "▶️ [AutoPlay (" + caller + ")] 自动下发 play() 播放指令");
+            try {
+                remoteCtrl.getTransportControls().play();
+            } catch (Exception e) {
+                Log.w(TAG, "⚠️ [AutoPlay] play 失败", e);
+            }
+            handler.postDelayed(() -> {
+                if (remoteCtrl != null) {
+                    try {
+                        PlaybackStateCompat state = remoteCtrl.getPlaybackState();
+                        if (state == null || state.getState() == PlaybackStateCompat.STATE_NONE || state.getState() == PlaybackStateCompat.STATE_STOPPED) {
+                            Log.i(TAG, "▶️ [AutoPlay retry] 检测到状态为空或停止，尝试 prepare() 并发送播放按键广播");
+                            remoteCtrl.getTransportControls().prepare();
+                            remoteCtrl.getTransportControls().play();
+                            String pkg = getSharedPreferences("session_pref", MODE_PRIVATE).getString("last_pkg", null);
+                            if (pkg != null) {
+                                SourceConfig s = sources.get(pkg);
+                                if (s != null) sendPairMediaButton(s, KeyEvent.KEYCODE_MEDIA_PLAY);
+                            }
+                        } else if (state.getState() != PlaybackStateCompat.STATE_PLAYING) {
+                            Log.i(TAG, "▶️ [AutoPlay retry] 补充二次下发 play()");
+                            remoteCtrl.getTransportControls().play();
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }, 400);
+        }
+    }
+
+    private void sendPairMediaButton(SourceConfig src, int keyCode) {
+        if (src == null) return;
+        if (src.mediaButtonReceiver != null) {
+            sendPairMediaButton(new ComponentName(src.pkg, src.mediaButtonReceiver), keyCode);
+        }
+        try {
+            long now = SystemClock.uptimeMillis();
+            Intent pulseDown = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            pulseDown.setPackage(src.pkg);
+            pulseDown.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+            sendBroadcast(pulseDown);
+
+            Intent pulseUp = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            pulseUp.setPackage(src.pkg);
+            pulseUp.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(now, now + 50, KeyEvent.ACTION_UP, keyCode, 0));
+            sendBroadcast(pulseUp);
+        } catch (Exception ignored) {}
+    }
+
+    private void sendPairMediaButton(ComponentName component, int keyCode) {
+        try {
+            long eventTime = SystemClock.uptimeMillis();
+            Intent down = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            down.setComponent(component);
+            down.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0));
+            sendBroadcast(down);
+
+            Intent up = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            up.setComponent(component);
+            up.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(eventTime, eventTime + 50, KeyEvent.ACTION_UP, keyCode, 0));
+            sendBroadcast(up);
+            Log.i(TAG, "  👉 已发送按键广播 [keyCode=" + keyCode + "] -> " + component.flattenToShortString());
+        } catch (Exception e) {
+            Log.w(TAG, "⚠️ 发送按键广播异常: " + component, e);
+        }
+    }
+
+    private void wakeUpSource(SourceConfig src) {
+        if (src == null) return;
+        Log.i(TAG, "⚡ [WakeUp Pipeline] 正在唤醒目标音乐应用: " + src.label + " (" + src.pkg + ")");
+
+        // 1. 发送显式成对按键广播到专属 MediaButtonReceiver
+        try {
+            if (src.mediaButtonReceiver != null) {
+                sendPairMediaButton(new ComponentName(src.pkg, src.mediaButtonReceiver), KeyEvent.KEYCODE_MEDIA_PLAY);
+            }
+            // 兜底动态匹配其它静态 Receiver
+            Intent queryIntent = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            queryIntent.setPackage(src.pkg);
+            List<ResolveInfo> receivers = getPackageManager().queryBroadcastReceivers(queryIntent, 0);
+            for (ResolveInfo ri : receivers) {
+                if (ri.activityInfo != null) {
+                    if (src.mediaButtonReceiver == null || !ri.activityInfo.name.equals(src.mediaButtonReceiver)) {
+                        sendPairMediaButton(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name), KeyEvent.KEYCODE_MEDIA_PLAY);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "⚠️ [WakeUp] 广播唤醒异常: " + src.pkg, e);
+        }
+
+        // 2. 发送普通包名广播（针对部分动态接收器）
+        try {
+            sendPairMediaButton(src, KeyEvent.KEYCODE_MEDIA_PLAY);
+        } catch (Exception ignored) {}
+    }
+
+    private MediaItem buildSwitchFeedbackItem(String label) {
+        return new MediaItem.Builder()
+                .setMediaId("SWITCH_DONE")
+                .setMediaMetadata(new MediaMetadata.Builder()
+                        .setTitle("✅ 已切换至 " + label)
+                        .setIsBrowsable(false)
+                        .setIsPlayable(true)
+                        .setFolderType(MediaMetadata.FOLDER_TYPE_NONE)
+                        .build())
+                .build();
     }
 }
