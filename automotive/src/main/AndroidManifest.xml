@@ -8,6 +8,7 @@
         <package android:name="bubei.tingshu.international" />
         <package android:name="com.luna.music" />
         <package android:name="com.tencent.qqmusic" />
+        <package android:name="com.metrolist.music" />
         <intent>
             <action android:name="android.media.browse.MediaBrowserService" />
         </intent>

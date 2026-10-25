@@ -161,6 +161,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Button pickBtn = findViewById(R.id.btn_pick_session);
+        findViewById(R.id.btn_test_metrolist).setOnClickListener(v -> testMetrolistProxy());
         findViewById(R.id.btn_test_lazy).setOnClickListener(v -> testLazyAudioProxy());
         findViewById(R.id.btn_test_qishui).setOnClickListener(v -> testQishuiMusicProxy());
         findViewById(R.id.btn_test_qq).setOnClickListener(v -> testQQMusicProxy());
@@ -512,6 +513,11 @@ public class MainActivity extends AppCompatActivity {
     /** 停止进度模拟器 */
     private void stopProgressTicker() {
         tickerHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void testMetrolistProxy() {
+        connectSourceForTest("com.metrolist.music",
+                "com.metrolist.music.playback.MusicService", "Metrolist", "SourceProxy");
     }
 
     private void testQishuiMusicProxy() {

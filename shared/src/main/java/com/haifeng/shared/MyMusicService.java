@@ -70,6 +70,7 @@ public class MyMusicService extends MediaLibraryService {
     private static final String CUSTOM_ACTION_SWITCH_LAZY = "ACTION_LAZY";
     private static final String CUSTOM_ACTION_SWITCH_QISHUI = "ACTION_QISHUI";
     private static final String CUSTOM_ACTION_SWITCH_QQ = "ACTION_QQ";
+    private static final String CUSTOM_ACTION_SWITCH_METROLIST = "ACTION_METROLIST";
 
     private static final String LAZY_PKG = "bubei.tingshu.international";
     private static final String LAZY_SVC = "tingshu.bubei.mediasupport.service.MediaSessionBrowserService";
@@ -82,6 +83,10 @@ public class MyMusicService extends MediaLibraryService {
     private static final String QQ_PKG = "com.tencent.qqmusic";
     private static final String QQ_SVC = "com.tencent.qqmusic.MediaSessionBrowserService";
     private static final String QQ_MBR = "androidx.media.session.MediaButtonReceiver";
+
+    private static final String METROLIST_PKG = "com.metrolist.music";
+    private static final String METROLIST_SVC = "com.metrolist.music.playback.MusicService";
+    private static final String METROLIST_MBR = "androidx.media3.session.MediaButtonReceiver";
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
@@ -539,6 +544,9 @@ public class MyMusicService extends MediaLibraryService {
         super.onCreate();
 
         sources = new LinkedHashMap<>();
+        sources.put(METROLIST_PKG, new SourceConfig(
+                METROLIST_PKG, METROLIST_SVC, "Metrolist", "METRO_", null,
+                CUSTOM_ACTION_SWITCH_METROLIST, "SWITCH_METROLIST", METROLIST_MBR, () -> wakeUpSource(sources.get(METROLIST_PKG))));
         sources.put(LAZY_PKG, new SourceConfig(
                 LAZY_PKG, LAZY_SVC, "懒人听书", "LAZY_", "LAZY_ROOT",
                 CUSTOM_ACTION_SWITCH_LAZY, "SWITCH_LAZY", LAZY_MBR, () -> wakeUpSource(sources.get(LAZY_PKG))));
@@ -626,7 +634,8 @@ public class MyMusicService extends MediaLibraryService {
                     .add(SessionCommand.COMMAND_CODE_LIBRARY_GET_SEARCH_RESULT)
                     .add(new SessionCommand(CUSTOM_ACTION_SWITCH_LAZY, Bundle.EMPTY))
                     .add(new SessionCommand(CUSTOM_ACTION_SWITCH_QISHUI, Bundle.EMPTY))
-                    .add(new SessionCommand(CUSTOM_ACTION_SWITCH_QQ, Bundle.EMPTY));
+                    .add(new SessionCommand(CUSTOM_ACTION_SWITCH_QQ, Bundle.EMPTY))
+                    .add(new SessionCommand(CUSTOM_ACTION_SWITCH_METROLIST, Bundle.EMPTY));
 
             Player.Commands.Builder playerCmdsBuilder = new Player.Commands.Builder()
                     .addAll(
@@ -743,7 +752,7 @@ public class MyMusicService extends MediaLibraryService {
                         .setMediaId("FOLDER_SWITCH")
                         .setMediaMetadata(new MediaMetadata.Builder()
                                 .setTitle("切换播放源")
-                                .setSubtitle("QQ / 懒人 / 汽水")
+                                .setSubtitle("Metrolist / QQ / 懒人 / 汽水")
                                 .setIsBrowsable(true)
                                 .setIsPlayable(false)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
@@ -779,6 +788,17 @@ public class MyMusicService extends MediaLibraryService {
 
             // 🎯 CONTENT OF THE SWITCH FOLDER
             if ("FOLDER_SWITCH".equals(parentId)) {
+                MediaItem metrolist = new MediaItem.Builder()
+                        .setMediaId("SWITCH_METROLIST")
+                        .setMediaMetadata(new MediaMetadata.Builder()
+                                .setTitle("Metrolist")
+                                .setIsBrowsable(false)
+                                .setIsPlayable(true)
+                                .setFolderType(MediaMetadata.FOLDER_TYPE_NONE)
+                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_metrolist_music))
+                                .build())
+                        .build();
+
                 MediaItem qq = new MediaItem.Builder()
                         .setMediaId("SWITCH_QQ")
                         .setMediaMetadata(new MediaMetadata.Builder()
@@ -813,11 +833,15 @@ public class MyMusicService extends MediaLibraryService {
                         .build();
 
                 return Futures.immediateFuture(LibraryResult.ofItemList(
-                        ImmutableList.of(qq, lazy, qishui), params));
+                        ImmutableList.of(metrolist, qq, lazy, qishui), params));
             }
 
             // 🎯 HANDLE SWITCH COMMAND FROM BROWSER
-            if ("SWITCH_QQ".equals(parentId)) {
+            if ("SWITCH_METROLIST".equals(parentId)) {
+                performManualSwitch(METROLIST_PKG, "Metrolist");
+                return Futures.immediateFuture(LibraryResult.ofItemList(
+                        ImmutableList.of(buildSwitchFeedbackItem("Metrolist")), params));
+            } else if ("SWITCH_QQ".equals(parentId)) {
                 performManualSwitch(QQ_PKG, "QQ音乐");
                 return Futures.immediateFuture(LibraryResult.ofItemList(
                         ImmutableList.of(buildSwitchFeedbackItem("QQ音乐")), params));
@@ -881,7 +905,7 @@ public class MyMusicService extends MediaLibraryService {
                         .setMediaId("FOLDER_SWITCH")
                         .setMediaMetadata(new MediaMetadata.Builder()
                                 .setTitle("切换播放源")
-                                .setSubtitle("QQ / 懒人 / 汽水")
+                                .setSubtitle("Metrolist / QQ / 懒人 / 汽水")
                                 .setIsBrowsable(true)
                                 .setIsPlayable(false)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
