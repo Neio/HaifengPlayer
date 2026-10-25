@@ -806,7 +806,7 @@ public class MyMusicService extends MediaLibraryService {
                                 .setIsBrowsable(false)
                                 .setIsPlayable(true)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_NONE)
-                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qq_vec))
+                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qq_music))
                                 .build())
                         .build();
 
@@ -817,7 +817,7 @@ public class MyMusicService extends MediaLibraryService {
                                 .setIsBrowsable(false)
                                 .setIsPlayable(true)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_NONE)
-                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_vec))
+                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_lazy_audio))
                                 .build())
                         .build();
 
@@ -828,7 +828,7 @@ public class MyMusicService extends MediaLibraryService {
                                 .setIsBrowsable(false)
                                 .setIsPlayable(true)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_NONE)
-                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_vec))
+                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_music))
                                 .build())
                         .build();
 
