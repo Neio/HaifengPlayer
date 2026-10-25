@@ -12,6 +12,7 @@ import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
@@ -177,9 +178,21 @@ public class MusicSessionSniffer extends NotificationListenerService {
     /* --- 调试打印（中文版本） --- */
     private void dumpMeta(String pkg, MediaMetadata meta) {
         if (meta == null) return;
+        Bitmap art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+        Bitmap icon = meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+        Bitmap art2 = meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
+        String artUri = meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI);
+        String artUri2 = meta.getString(MediaMetadata.METADATA_KEY_ART_URI);
+        String iconUri = meta.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
         Log.i("Sniffer", pkg + " 元数据 → 歌曲: " + meta.getString(MediaMetadata.METADATA_KEY_TITLE)
                 + " | 歌手: " + meta.getString(MediaMetadata.METADATA_KEY_ARTIST)
-                + " | 时长: " + meta.getLong(MediaMetadata.METADATA_KEY_DURATION) + "ms");
+                + " | 时长: " + meta.getLong(MediaMetadata.METADATA_KEY_DURATION) + "ms"
+                + " | ALBUM_ART: " + (art != null ? (art.getWidth() + "x" + art.getHeight()) : "null")
+                + " | ICON: " + (icon != null ? (icon.getWidth() + "x" + icon.getHeight()) : "null")
+                + " | ART: " + (art2 != null ? (art2.getWidth() + "x" + art2.getHeight()) : "null")
+                + " | ALBUM_ART_URI: " + artUri
+                + " | ART_URI: " + artUri2
+                + " | ICON_URI: " + iconUri);
     }
     private void dumpState(String pkg, PlaybackState st) {
         if (st == null) return;

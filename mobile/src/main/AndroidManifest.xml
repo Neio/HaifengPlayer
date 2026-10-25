@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Required to connect to Qishui Music (汽水音乐) -->
     <uses-permission android:name="com.luna.biz.playing.permission.MEDIA_BROWSE" />

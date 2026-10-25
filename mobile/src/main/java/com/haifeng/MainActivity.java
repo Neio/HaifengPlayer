@@ -43,6 +43,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 
 import java.util.List;
+import java.util.Objects;
 
 import androidx.annotation.Nullable;
 import android.content.pm.PackageManager;
@@ -68,6 +69,7 @@ public class MainActivity extends AppCompatActivity {
     private Runnable tickerRunnable;
     private long currentPositionMs = 0; // 当前播放位置（ms）
     private int lastPlaybackState = PlaybackStateCompat.STATE_NONE; // 上一次播放状态，用于避免重复重启ticker
+    private String lastCoverArtUrl = null; // 当前已展示或正在加载的封面 URL，避免重复触发下载
 
     private static final String ACTION_CONTROLLER = "com.haifeng.ACTION_CONTROLLER";
 
@@ -416,9 +418,10 @@ public class MainActivity extends AppCompatActivity {
                 if (cover == null)
                     cover = meta.getBitmap(MediaMetadataCompat.METADATA_KEY_ART);
 
+                AlbumCoverFragment frag2 = (AlbumCoverFragment) getSupportFragmentManager()
+                        .findFragmentById(R.id.playerAlbumCoverFragment);
+
                 if (cover != null) {
-                    AlbumCoverFragment frag2 = (AlbumCoverFragment) getSupportFragmentManager()
-                            .findFragmentById(R.id.playerAlbumCoverFragment);
                     if (frag2 != null) {
                         frag2.updateCover(cover);
                     } else {
@@ -426,6 +429,44 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } else {
                     Log.w("Mirror", "未获取到封面图");
+                }
+
+                // 异步检查并加载高清封面 URI（提升懒人听书等低清缩略图的清晰度）
+                String artUri = meta.getString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI);
+                if (artUri == null) artUri = meta.getString(MediaMetadataCompat.METADATA_KEY_ART_URI);
+                if (artUri == null) artUri = meta.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI);
+
+                if (artUri != null) {
+                    String targetUrl = artUri;
+                    if (targetUrl.contains("bookpic.lrts.me") && targetUrl.contains("_326x326")) {
+                        targetUrl = targetUrl.replace("_326x326", "_600x600");
+                    }
+
+                    // 1. 命中内存缓存时，0ms 瞬间显示，无需开线程
+                    Bitmap cached = com.haifeng.shared.ArtLoader.getFromMemoryCache(targetUrl);
+                    if (cached != null) {
+                        lastCoverArtUrl = targetUrl;
+                        if (frag2 != null) {
+                            frag2.updateCover(cached);
+                        }
+                    } else if (!Objects.equals(targetUrl, lastCoverArtUrl)) {
+                        // 2. 避免同一首歌/同一URL因播放状态等频繁event重复开启线程下载
+                        lastCoverArtUrl = targetUrl;
+                        final String fetchUrl = targetUrl;
+                        final String currentSong = title;
+                        new Thread(() -> {
+                            Bitmap hd = com.haifeng.shared.ArtLoader.loadBitmapFromUrl(fetchUrl);
+                            if (hd != null) {
+                                runOnUiThread(() -> {
+                                    AlbumCoverFragment f = (AlbumCoverFragment) getSupportFragmentManager()
+                                            .findFragmentById(R.id.playerAlbumCoverFragment);
+                                    if (f != null && !isFinishing() && !isDestroyed()) {
+                                        f.updateCover(hd);
+                                    }
+                                });
+                            }
+                        }).start();
+                    }
                 }
 
                 String artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST);

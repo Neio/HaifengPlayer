@@ -4,6 +4,7 @@
     <uses-feature
         android:name="android.hardware.type.automotive"
         android:required="true" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <queries>
         <package android:name="bubei.tingshu.international" />
         <package android:name="com.luna.music" />

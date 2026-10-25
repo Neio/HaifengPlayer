@@ -105,6 +105,7 @@ public class MyMusicService extends MediaLibraryService {
     private String currentArtist = "已准备就绪";
     private long currentDurationMs = 3600000L;
     private byte[] currentArtworkData = null;
+    private String currentArtUri = null;
     private boolean isPlaying = false;
     private boolean isPlayWhenReady = false;
     private int playbackStateCode = Player.STATE_READY;
@@ -386,13 +387,56 @@ public class MyMusicService extends MediaLibraryService {
             }
 
             if (art != null) {
-                try {
-                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                    art.compress(Bitmap.CompressFormat.PNG, 100, stream);
-                    currentArtworkData = stream.toByteArray();
-                } catch (Throwable t) {
-                    Log.w(TAG, "Failed to compress artwork bitmap", t);
-                    currentArtworkData = null;
+                byte[] data = ArtLoader.bitmapToByteArray(art);
+                if (data != null) {
+                    currentArtworkData = data;
+                }
+            }
+
+            // 检查是否有更高清的网络封面 URI
+            String artUri = meta.getString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI);
+            if (artUri == null) artUri = meta.getString(MediaMetadataCompat.METADATA_KEY_ART_URI);
+            if (artUri == null) artUri = meta.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI);
+
+            if (artUri != null) {
+                // 如果是懒人听书等提供的带尺寸缩略图，尝试替换为更高清版本（如 600x600）
+                String targetUrl = artUri;
+                if (targetUrl.contains("bookpic.lrts.me") && targetUrl.contains("_326x326")) {
+                    targetUrl = targetUrl.replace("_326x326", "_600x600");
+                }
+
+                // 1. 优先命中内存缓存，无需开线程，0ms 更新
+                Bitmap cached = ArtLoader.getFromMemoryCache(targetUrl);
+                if (cached != null) {
+                    currentArtUri = targetUrl;
+                    byte[] cachedData = ArtLoader.bitmapToByteArray(cached);
+                    if (cachedData != null) {
+                        currentArtworkData = cachedData;
+                    }
+                } else if (!Objects.equals(targetUrl, currentArtUri)) {
+                    // 2. 避免同一歌曲因频繁 event 重复启动线程下载
+                    currentArtUri = targetUrl;
+                    final String fetchUrl = targetUrl;
+                    final String songKey = currentTitle + "_" + currentArtist;
+
+                    new Thread(() -> {
+                        Bitmap hd = ArtLoader.loadBitmapFromUrl(fetchUrl);
+                        if (hd != null) {
+                            byte[] hdData = ArtLoader.bitmapToByteArray(hd);
+                            if (hdData != null) {
+                                handler.post(() -> {
+                                    if (Objects.equals(songKey, currentTitle + "_" + currentArtist)) {
+                                        currentArtworkData = hdData;
+                                        if (mirrorPlayer != null) {
+                                            mirrorPlayer.notifyStateChanged();
+                                        }
+                                        updateForegroundNotification();
+                                        Log.i(TAG, "✨ 已通过网络 URI 替换为高清封面 (" + hd.getWidth() + "x" + hd.getHeight() + ")");
+                                    }
+                                });
+                            }
+                        }
+                    }).start();
                 }
             }
 
@@ -410,6 +454,7 @@ public class MyMusicService extends MediaLibraryService {
             currentTitle = label;
             currentArtist = "已准备就绪";
             currentArtworkData = null;
+            currentArtUri = null;
             if (mirrorPlayer != null) {
                 mirrorPlayer.notifyStateChanged();
             }
