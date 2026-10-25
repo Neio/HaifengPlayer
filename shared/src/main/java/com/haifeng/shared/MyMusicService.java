@@ -543,7 +543,7 @@ public class MyMusicService extends MediaLibraryService {
                 LAZY_PKG, LAZY_SVC, "懒人听书", "LAZY_", "LAZY_ROOT",
                 CUSTOM_ACTION_SWITCH_LAZY, "SWITCH_LAZY", LAZY_MBR, () -> wakeUpSource(sources.get(LAZY_PKG))));
         sources.put(QISHUI_PKG, new SourceConfig(
-                QISHUI_PKG, QISHUI_SVC, "汽水音乐", "QISHUI_", "QISHUI_ROOT",
+                QISHUI_PKG, QISHUI_SVC, "汽水音乐", "QISHUI_", null,
                 CUSTOM_ACTION_SWITCH_QISHUI, "SWITCH_QISHUI", QISHUI_MBR, () -> wakeUpSource(sources.get(QISHUI_PKG))));
         sources.put(QQ_PKG, new SourceConfig(
                 QQ_PKG, QQ_SVC, "QQ音乐", "QQ_", null,
@@ -742,12 +742,12 @@ public class MyMusicService extends MediaLibraryService {
                 MediaItem cmdFolder = new MediaItem.Builder()
                         .setMediaId("FOLDER_SWITCH")
                         .setMediaMetadata(new MediaMetadata.Builder()
-                                .setTitle("🔄 切换播放源")
+                                .setTitle("切换播放源")
                                 .setSubtitle("QQ / 懒人 / 汽水")
                                 .setIsBrowsable(true)
                                 .setIsPlayable(false)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
-                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_vec))
+                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_switch_source_24dp))
                                 .build())
                         .build();
 
@@ -762,7 +762,7 @@ public class MyMusicService extends MediaLibraryService {
                         MediaItem sourceFolder = new MediaItem.Builder()
                                 .setMediaId(curSrc.rootId)
                                 .setMediaMetadata(new MediaMetadata.Builder()
-                                        .setTitle("📚 " + curSrc.label + " 内容库")
+                                        .setTitle(curSrc.label + " 内容库")
                                         .setSubtitle("点此查看 " + curSrc.label + " 目录与书籍")
                                         .setIsBrowsable(true)
                                         .setIsPlayable(false)
@@ -880,12 +880,12 @@ public class MyMusicService extends MediaLibraryService {
                 MediaItem cmdFolder = new MediaItem.Builder()
                         .setMediaId("FOLDER_SWITCH")
                         .setMediaMetadata(new MediaMetadata.Builder()
-                                .setTitle("🔄 切换播放源")
+                                .setTitle("切换播放源")
                                 .setSubtitle("QQ / 懒人 / 汽水")
                                 .setIsBrowsable(true)
                                 .setIsPlayable(false)
                                 .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
-                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_qishui_vec))
+                                .setArtworkUri(Uri.parse("android.resource://" + getPackageName() + "/" + R.drawable.ic_switch_source_24dp))
                                 .build())
                         .build();
                 return Futures.immediateFuture(LibraryResult.ofItem(cmdFolder, null));
